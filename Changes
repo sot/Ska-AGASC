@@ -1,0 +1,6 @@
+Revision history for Perl extension Ska::AGASC.
+
+0.01  Thu Oct  5 09:22:54 2006
+	- original version; created by h2xs 1.23 with options
+		-A -X -n Ska::AGASC
+
