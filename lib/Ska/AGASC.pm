@@ -7,7 +7,7 @@ use warnings;
 use Data::ParseTable qw( parse_table );
 use Math::Trig qw( great_circle_distance );
 use Data::Dumper;
-use Ska::Convert qw( date2time );
+
 use IO::All;
 use Quat;
 
@@ -22,7 +22,7 @@ my $r2a = 180./$pi*3600;
 my $d2r = $pi/180.;
 my $r2d = 1./$d2r;
 
-my $agasc_start_date = '2000:001:00:00:00.000';
+
 
 sub new{
 
@@ -77,6 +77,26 @@ sub new{
 
     bless $self, $class;
     return $self;
+}
+
+
+sub list_ids{
+    my $self = shift;
+    my @keys = keys %{$self};
+    return @keys;
+}
+
+sub has_id{
+    my $self = shift;
+    my $id = shift;
+    return (defined $self->{$id});
+}
+
+sub get_star{
+    my $self = shift;
+    my $id = shift;
+    my $star = $self->{$id};
+    return $star;
 }
 
 sub get_curr_time{
@@ -151,46 +171,20 @@ sub grabFITS{
     for my $file (@{$fits_list}){
 	my $stars = parse_table( $file );
 	for my $star (@{$stars}){
-	    pm_correct( $star, $par );
+	    my $star_object = Ska::AGASC::Star->new($star, $par->{datetime});
 	    # great_circle_distance from Math::Trig defaults to radians
 	    my $dist = great_circle_distance( $par->{ra}*$d2r, 
 				              $par->{dec}*$d2r, 
-				              $star->{ra_pmcorrected}*$d2r, 
-				              $star->{dec_pmcorrected}*$d2r)
+				              $star_object->ra_pmcorrected()*$d2r, 
+				              $star_object->dec_pmcorrected()*$d2r)
 					      *$r2d;
-
-
 	    if ( $dist < $par->{radius} ){
-		$starhash{$star->{agasc_id}} = $star;
-		
+		$starhash{$star_object->agasc_id()} = $star_object; 
 	    }
 	}
     }
     return \%starhash;
 }
-
-
-sub pm_correct{
-
-    my $star = shift;
-    my $par = shift;
-
-    my $seconds_per_day = 86400;
-    my $days_per_year = 365.25;
-    my $years = (date2time($par->{datetime}) - date2time($agasc_start_date)) /
-	( $seconds_per_day * $days_per_year);
-    
-    # ignore those with proper motion of -9999
-    my $pm_ra = ($star->{pm_ra} == -9999) ? 0 : $star->{pm_ra};
-    my $pm_dec = ($star->{pm_dec} == -9999) ? 0 : $star->{pm_dec};
-    
-    my $milliarcsecs_per_degree = 3600 * 1000;
-    # proper motion in milliarcsecs per year
-    $star->{ra_pmcorrected} = $star->{ra} + ( $pm_ra * ( $years / $milliarcsecs_per_degree ));
-    $star->{dec_pmcorrected} = $star->{dec} + ( $pm_dec * ( $years / $milliarcsecs_per_degree ));
-    
-}
-
 
 
 
@@ -203,6 +197,7 @@ sub sortnuniq{
 
     return @array2;
 }
+
 
 sub getFITSSource{
     
@@ -366,7 +361,123 @@ sub radeclim{
 #
 
 
+package Ska::AGASC::Star;
 
+use strict;
+use warnings;
+use Ska::Convert qw( date2time );
+use Class::MakeMethods::Standard::Hash (
+					scalar => [ qw(
+						       acqq1
+						       acqq2
+						       acqq3
+						       acqq4
+						       acqq5
+						       acqq6
+						       agasc_id
+						       aspq1
+						       aspq2
+						       aspq3
+						       c1_catid
+						       c2_catid
+						       class
+						       color1
+						       color1_err
+						       color2
+						       color2_err
+						       dec
+						       epoch
+						       mag
+						       mag_aca
+						       mag_aca_err
+						       mag_band
+						       mag_catid
+						       mag_err
+						       plx
+						       plx_catid
+						       plx_err
+						       pm_catid
+						       pm_dec
+						       pm_ra
+						       pos_catid
+						       pos_err
+						       ra
+						       rsv1
+						       rsv2
+						       rsv3
+						       rsv4
+						       rsv5
+						       rsv6
+						       var
+						       var_catid
+						       xref_id1
+						       xref_id2
+						       xref_id3
+						       xref_id4
+						       xref_id5
+						       )
+						    ],
+					);
+
+my $agasc_start_date = '2000:001:00:00:00.000';
+my $seconds_per_day = 86400;
+my $days_per_year = 365.25;
+my $milliarcsecs_per_degree = 3600 * 1000;
+
+my $datetime;
+
+sub new{
+    my $class = shift;
+    my $star = shift;
+    $datetime = shift;
+
+    my %star_info = %{$star}; 
+    my $star_ref = \%star_info;
+
+    bless $star_ref, $class;
+    return $star_ref;
+}
+
+
+sub ra_pmcorrected{
+
+    my $self = shift;
+    return $self->{ra_pmcorrected} if (defined $self->{ra_pmcorrected});
+
+    my $years = (date2time($datetime) - date2time($agasc_start_date)) /
+	( $seconds_per_day * $days_per_year);
+    
+    # ignore those with proper motion of -9999
+    my $pm_ra = ($self->pm_ra() == -9999) ? 0 : $self->pm_ra();
+    
+    # proper motion in milliarcsecs per year
+    my $ra_pmcorrected = $self->ra() + ( $pm_ra * ( $years / $milliarcsecs_per_degree ));
+				       
+    $self->{ra_pmcorrected} = $ra_pmcorrected;
+    return $self->{ra_pmcorrected};
+    
+}
+
+sub dec_pmcorrected{
+
+    my $self = shift;
+    return $self->{dec_pmcorrected} if (defined $self->{dec_pmcorrected});
+
+    my $years = (date2time($datetime) - date2time($agasc_start_date)) /
+	( $seconds_per_day * $days_per_year);
+    
+    # ignore those with proper motion of -9999
+    my $pm_dec = ($self->pm_dec() == -9999) ? 0 : $self->pm_dec();
+    
+    # proper motion in milliarcsecs per year
+    my $dec_pmcorrected = $self->dec() + ( $pm_dec * ( $years / $milliarcsecs_per_degree ));
+				       
+    $self->{dec_pmcorrected} = $dec_pmcorrected;
+    return $self->{dec_pmcorrected};
+    
+}
+
+    
 
 
 1;
@@ -407,3 +518,6 @@ at your option, any later version of Perl 5 you may have available.
 
 
 =cut
+    
+
+
