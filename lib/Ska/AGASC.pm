@@ -186,12 +186,10 @@ sub grabFITS{
 
 
 sub sortnuniq{
+
     my @array = @_;
-    
     my %hash = map { $_ => 1 } @array;
-
     my @array2 = sort keys %hash;
-
     return @array2;
 }
 
