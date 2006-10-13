@@ -11,7 +11,7 @@ use IO::All;
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '1.5';
+our $VERSION = '1.0';
 
 my $ID_DIST_LIMIT = 1.5;
 
