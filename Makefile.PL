@@ -3,6 +3,7 @@ use ExtUtils::MakeMaker;
 # the contents of the Makefile that is written.
 WriteMakefile(
     NAME              => 'Ska::AGASC',
+    VERSION_FROM      => 'lib/Ska/AGASC.pm',
     PREREQ_PM         => { IO::All => undef,
                            Data::ParseTable => undef,
                            Math::Trig => undef,
