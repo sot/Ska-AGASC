@@ -3,7 +3,12 @@ use ExtUtils::MakeMaker;
 # the contents of the Makefile that is written.
 WriteMakefile(
     NAME              => 'Ska::AGASC',
-    PREREQ_PM         => {}, # e.g., Module::Name => 1.1
+    PREREQ_PM         => { IO::All => undef,
+                           Data::ParseTable => undef,
+                           Math::Trig => undef,
+                           Ska::Convert => undef,
+                           Class::MakeMethods::Standard::Hash => undef,
+                           }, # e.g., Module::Name => 1.1
     ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
       (ABSTRACT_FROM  => 'lib/Ska/AGASC.pm', # retrieve abstract from module
        AUTHOR         => 'Jean Connelly <jeanconn@localdomain>') : ()),
