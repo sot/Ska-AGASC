@@ -11,6 +11,8 @@ use IO::All;
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
+our $VERSION = '1.5';
+
 my $ID_DIST_LIMIT = 1.5;
 
 my $pi = 4*atan2(1,1);
