@@ -6,10 +6,7 @@ use strict;
 use warnings;
 use Data::ParseTable qw( parse_table );
 use Math::Trig qw( great_circle_distance );
-use Data::Dumper;
-
 use IO::All;
-use Quat;
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
@@ -319,46 +316,6 @@ sub radeclim{
 
 }
 
-# Let's keep this section if  we decide to read directly from the REGIONS.TBL
-
-#my $regions_tbl = parse_table('REGIONS.TBL');
-#
-#my @mat;
-#
-
-
-#use Ska::Convert qw( hms2dec );
-#
-#
-#
-#for my $region (@{$regions_tbl}){
-#    my ($ra_lo, $dec_lo) = hms2dec( $region->{ra_h_low}, $region->{ra_m_low}, $region->{ra_s_low}, $region->{decsi_lo}.$region->{dec_d_lo}, $region->{dec_m_lo}, 0);
-#    my ($ra_hi, $dec_hi) = hms2dec( $region->{ra_h_hi}, $region->{ra_m_hi}, $region->{ra_s_hi}, $region->{decsi_hi}.$region->{dec_d_hi}, $region->{dec_m_hi}, 0);
-#    $ra_hi = ($ra_hi >= 360) ? $ra_hi - 360 : $ra_hi;
-#    my %point = ( 
-#		  RA_LO => $ra_lo,
-#		  DEC_LO => $dec_lo,
-#		  RA_HI => $ra_hi,
-#		  DEC_HI => $dec_hi,
-#		  );
-#    push @mat, \%point,
-#}
-#
-#
-#use Data::Dumper;
-#for my $index (0 .. scalar(@{$regions_tbl})-1){
-#    unless ( ($mat[$index]->{RA_LO} == $regions_mat->[$index]->{RA_LO})
-#	  && ($mat[$index]->{RA_HI} == $regions_mat->[$index]->{RA_HI})
-#	  && ($mat[$index]->{DEC_LO} == $regions_mat->[$index]->{DEC_LO})
-#	  && ($mat[$index]->{DEC_HI} == $regions_mat->[$index]->{DEC_HI})
-#	     ){
-#	print Dumper $mat[$index];
-#	print Dumper $regions_mat->[$index];
-#    }
-#}
-#
-#print Dumper @mat;
-#
 
 
 package Ska::AGASC::Star;
@@ -486,23 +443,130 @@ __END__
 
 =head1 NAME
 
-Ska::AGASC - Perl extension for blah blah blah
+Ska::AGASC - Perl extension to retrieve stars from the AGASC
 
 =head1 SYNOPSIS
 
-  use Ska::AGASC;
-  my $agasc_region = Ska::AGASC->new({ ra => 30, dec => 40, radius => 1.3, datetime => '2001:102:12:34:06.000' });
+use Ska::AGASC;
+
+my $agasc_region = Ska::AGASC->new({ ra => 30, dec => 40, radius => .05, datetime => '2001:102:12:34:06.000' });
+my @star_list = $agasc_region->list_ids();
+for my $agasc_id (@star_list){
+    my $star = $agasc_region->get_star($agasc_id);
+    my $ra = $star->ra();
+    my $dec = $star->dec();
+    print "id:$agasc_id \tra:$ra \tdec:$dec \n";
+}
+
 
 =head1 DESCRIPTION
 
-   Ska::AGASC retrieves the stars in a region of the agasc and returns a reference to a object that is a hash of those stars.
-   It uses AGASC 1.6 by default.  
+   Ska::AGASC retrieves the stars in a region of the agasc and returns a 
+   reference to a object that is a hash of those stars.
 
-=head2 EXPORT
+   It uses AGASC 1.6 by default.  
+   
+
+=head1 EXPORT
 
 None by default.
 
+=head1 Ska::AGASC METHODS
+
+=head2 new()
     
+    Creates a new instance of the AGASC container object.
+    Accepts as its argument an anonymous hash or hashref of attributes which 
+    override the defaults.
+
+    Default Parameters
+    my %par = (
+               ra => 0,
+               dec => 0,
+               radius => 1.3,
+               datetime => get_curr_time(),
+               agasc_dir => '/data/agasc1p6/',
+               );
+
+   Note: The radius retrieve section calculates the proper motion corrected 
+   values of ra and dec (which are stored in the star object as ra_pmcorrected 
+   and dec_pmcorrected) and uses those coordinates to determine if the star is 
+   actually within the defined retrieve radius.
+
+ 
+=head2 list_ids()
+
+    Returns an array of the agasc_ids of the star objects within the AGASC region.
+
+=head2 has_id($agasc_id)
+
+    Returns true value if the Ska::AGASC object contains a star with the specified $agasc_id.
+
+=head2 get_star($agasc_id)
+    
+    Returns the Ska::AGASC::Star object with the specified $agasc_id
+
+=head1 Ska::AGASC::Star Methods
+
+=head2 ra_pmcorrected()
+
+    Gets or sets the proper motion corrected value of the star object's RA.
+
+=head2 dec_pmcorrected()
+
+    Gets or sets the proper motion corrected value of the star object's DEC.
+
+=head2 All other AGASC attributes have standard get/set methods
+ Listed here in alphabetical order for convenience
+
+ acqq1
+ acqq2
+ acqq3
+ acqq4
+ acqq5
+ acqq6
+ agasc_id
+ aspq1
+ aspq2
+ aspq3
+ c1_catid
+ c2_catid
+ class
+ color1
+ color1_err
+ color2
+ color2_err
+ dec
+ epoch
+ mag
+ mag_aca
+ mag_aca_err
+ mag_band
+ mag_catid
+ mag_err
+ plx
+ plx_catid
+ plx_err
+ pm_catid
+ pm_dec
+ pm_ra
+ pos_catid
+ pos_err
+ ra
+ rsv1
+ rsv2
+ rsv3
+ rsv4
+ rsv5
+ rsv6
+ var
+ var_catid
+ xref_id1
+ xref_id2
+ xref_id3
+ xref_id4
+ xref_id5
+
 
 =head1 AUTHOR
 
@@ -510,7 +574,7 @@ Jean Connelly, E<lt>jeanconn@localdomainE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2006 by Jean Connelly
+Copyright (C) 2006 Smithsonian Astrophysical Observatory
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.6 or,
