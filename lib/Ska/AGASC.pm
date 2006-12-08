@@ -7,6 +7,8 @@ use warnings;
 use Data::ParseTable qw( parse_table );
 use Math::Trig qw( great_circle_distance );
 use IO::All;
+use PDL;
+use Data::Dumper;
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
@@ -52,12 +54,17 @@ sub new{
     # agasc and then step through them to remove those outside the radius)
     my $lim_ref = radeclim( $par{ra}, $par{dec}, $par{radius});
 
+#    print Dumper $lim_ref;
+
     # load the regions file into an array of hash references
     my $regions_mat = parse_boundary($par{boundary_file});
+
 
     # find the numbers of all the regions that appear to contain a piece of the defined
     # search box
     my @region_numbers = regionsInside( $lim_ref->{rlim}, $lim_ref->{dlim}, $regions_mat );
+
+#    print Dumper @region_numbers;
 
     # add all the regions that border the matched regions to deal with small region problems
     my @regions_plus_neighbors = parse_neighbors($par{neighbor_txt}, \@region_numbers);
@@ -121,10 +128,25 @@ sub parse_boundary{
 	my @field = split( ' ', $line);
         s/^ *| *$//g for @field;
 
-	my %region = ( RA_LO => $field[1],
-		       RA_HI => $field[2],
-		       DEC_LO => $field[3],
-		       DEC_HI => $field[4],
+	my $ra_lo = $field[1];
+	my $ra_hi = $field[2];
+	my $dec_lo = $field[3];
+	my $dec_hi = $field[4];
+
+	if ( $ra_lo > $ra_hi ){
+	    $ra_lo -= 360;
+	}
+	
+	if ( $dec_hi < $dec_lo ){
+	    my $temp = $dec_lo;
+	    $dec_lo = $dec_hi;
+	    $dec_hi = $temp;
+	}
+
+	my %region = ( RA_LO => $ra_lo,
+		       RA_HI => $ra_hi,
+		       DEC_LO => $dec_lo,
+		       DEC_HI => $dec_hi,
 		       );
 	push @regions, \%region;
     }
@@ -170,7 +192,10 @@ sub grabFITS{
     for my $file (@{$fits_list}){
 	my $stars = parse_table( $file );
 	for my $star (@{$stars}){
-	    my $star_object = Ska::AGASC::Star->new($star, $par->{datetime});
+	    my $star_object = PDL::AGASC::Star->new($star, $par->{datetime});
+	    $star_object->source_file($file);
+#	    use Data::Dumper;
+#	    print Dumper $star_object;
 	    # great_circle_distance from Math::Trig defaults to radians
 	    my $dist = great_circle_distance( $par->{ra}*$d2r, 
 				              $par->{dec}*$d2r, 
@@ -213,68 +238,79 @@ sub getFITSSource{
 
 
 sub regionsInside{
-# ugly hack copied from matlab (now in sad "for" loop )
 
     my ($rlim, $dlim, $regions) = @_;
-    
-    my @rliml = @{$rlim};
-    my @rlimh = @{$rlim};
-    
-    if ($rlim->[0] > $rlim->[1]){
-	$rliml[0] = $rlim->[0] - 360;
-	$rlimh[1] = $rlim->[1] + 360;
-    }
 
+
+    # Define the 4 corners of the box defined by the region
+
+    my @corners  = ( 
+		     { 
+		       ra => $rlim->[0], 
+		       dec =>$dlim->[0],
+		       },
+		     {
+		      ra => $rlim->[0], 
+		      dec => $dlim->[1],
+		      },
+		     {
+		      ra => $rlim->[1],
+		      dec => $dlim->[0],
+		      },
+		     {
+		      ra => $rlim->[1],
+		      dec => $dlim->[1],
+		      },
+		     );
+
+    
+    
+    
     my @regNumbers;
 
-    for my $index (0 .. scalar(@{$regions})-1){
+    for my $index (0 .. $#{@{$regions}} ){
 
-	# step through the regions in ra and dec and a define a true status bit if there
-	# is a hit on either
+	my $match = 0;
 
-	my $idxrlo = 0;
-	my $idxrhi = 0;
-	my $idxdlo = 0;
-	my $idxdhi = 0;
-	my $spanra = 0;
-	my $spandec = 0;
+	# check to see if any corner is in the region
 
-
-	if ( ($rliml[0] <= $regions->[$index]->{RA_LO} )
-	     && ( $regions->[$index]->{RA_LO} <= $rliml[1] ) ){
-	    $idxrlo = 1;
-	}
-	if ( ($rlimh[0] <= $regions->[$index]->{RA_HI} )
-	     && ( $regions->[$index]->{RA_HI} <= $rlimh[1] ) ){
-	    $idxrhi = 1;
-	}
-	if ( ($dlim->[0] <= $regions->[$index]->{DEC_LO} )
-	     && ( $regions->[$index]->{DEC_LO} <= $dlim->[1] ) ){
-	    $idxdlo = 1;
-	}
-	if ( ($dlim->[0] <= $regions->[$index]->{DEC_HI} )
-	     && ( $regions->[$index]->{DEC_HI} <= $dlim->[1] ) ){
-	    $idxdhi = 1;
-	}
-	if ( ( $regions->[$index]->{RA_LO} <= $rliml[0] )
-	     && ( $regions->[$index]->{RA_HI} >= $rliml[1]) ){
-	    $spanra = 1;
-	}
-	if ( ( $regions->[$index]->{DEC_LO} <= $dlim->[0] )
-	     && ( $regions->[$index]->{DEC_HI} >= $dlim->[1]) ){
-	    $spandec = 1;
+	for my $corner (@corners){
+	    if ( point_in_area( $corner, $regions->[$index] )){
+		$match = 1;
+		last;
+	    }
 	}
 
-	if ( ( $idxrlo || $idxrhi || $spanra ) && ( $idxdlo || $idxdhi || $spandec ) ){
-	    # if there is a hit on both ra and dec, push the region to the list of matching ones
-	    # add one because the indexing starts at 1
+
+	if ($match){
 	    push @regNumbers, $index + 1;
 	}
     }
     
+
     return @regNumbers;
 }
 
+
+sub point_in_area{
+
+    my ( $point, $area ) = @_;
+
+#    print Dumper $point;
+#    print Dumper $area;
+
+    if ( 
+	 ( ($point->{ra} >= $area->{RA_LO}) && ($point->{ra} <= $area->{RA_HI} ) )
+	 &&
+	 ( ($point->{dec} >= $area->{DEC_LO}) && ($point->{dec} <= $area->{DEC_HI} ) )
+	 ){
+	return 1;
+    }
+    
+    return 0;
+
+}    
+    
 
 sub radeclim{
 # ugly hack copied from matlab code
@@ -307,9 +343,9 @@ sub radeclim{
 	if ( $lim{rlim}->[$i] > 360 ){
 	    $lim{rlim}->[$i] -= 360;
 	}
-	if ( $lim{rlim}->[$i] < 0){
-	    $lim{rlim}->[$i] += 360;
-	}
+#	if ( $lim{rlim}->[$i] < 0){
+#	    $lim{rlim}->[$i] += 360;
+#	}
     }
 
     return \%lim;
@@ -318,13 +354,15 @@ sub radeclim{
 
 
 
-package Ska::AGASC::Star;
+package PDL::AGASC::Star;
+
 
 use strict;
 use warnings;
 use Ska::Convert qw( date2time );
 use Class::MakeMethods::Standard::Hash (
 					scalar => [ qw(
+						       source_file
 						       acqq1
 						       acqq2
 						       acqq3
@@ -382,6 +420,8 @@ my $days_per_year = 365.25;
 my $milliarcsecs_per_degree = 3600 * 1000;
 
 my $datetime;
+
+
 
 sub new{
     my $class = shift;
