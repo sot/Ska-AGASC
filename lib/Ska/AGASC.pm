@@ -14,7 +14,7 @@ use PDL;
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '1.1';
+our $VERSION = '2.0';
 
 my $ID_DIST_LIMIT = 1.5;
 
@@ -32,8 +32,6 @@ sub new{
     my $class = shift;
     my $par_ref = shift;
 
-    my $SKA = $ENV{SKA} || '/proj/sot/ska';
-
     my %par = (
 	       ra => 0,
 	       dec => 0,
@@ -41,9 +39,6 @@ sub new{
 	       datetime => get_curr_time(),
 	       agasc_dir => '/data/agasc1p6/',
 	       );
-
-    $par{boundary_file} = $par{agasc_dir} . 'tables/boundaryfile';
-    $par{neighbor_txt} = $par{agasc_dir} . 'tables/neighbors';
     
 
     # Override Defaults as needed from passed parameter hash
@@ -52,6 +47,10 @@ sub new{
     }
     
     my $agasc_dir = $par{agasc_dir} . 'agasc';
+
+    $par{boundary_file} = $par{agasc_dir} . 'tables/boundaryfile';
+    $par{neighbor_txt} = $par{agasc_dir} . 'tables/neighbors';
+
 
     # define the ra and dec limits of the search box (we yank a box of stars from the
     # agasc and then step through them to remove those outside the radius)
