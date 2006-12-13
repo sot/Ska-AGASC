@@ -5,7 +5,7 @@ package Ska::AGASC;
 use strict;
 use warnings;
 use Data::ParseTable qw( parse_table );
-use Math::Trig qw( great_circle_distance );
+use Math::Trig qw( pi );
 use IO::All;
 use PDL;
 #use Data::Dumper;
@@ -18,7 +18,8 @@ our $VERSION = '1.0';
 
 my $ID_DIST_LIMIT = 1.5;
 
-my $pi = 4*atan2(1,1);
+#my $pi = 4*atan2(1,1);
+my $pi = pi;
 my $r2a = 180./$pi*3600;
  
 my $d2r = $pi/180.;
@@ -40,6 +41,7 @@ sub new{
 	       datetime => get_curr_time(),
 	       agasc_dir => '/data/agasc1p6/',
 	       );
+
     $par{boundary_file} = $par{agasc_dir} . 'tables/boundaryfile';
     $par{neighbor_txt} = $par{agasc_dir} . 'tables/neighbors';
     
@@ -195,20 +197,34 @@ sub grabFITS{
 	for my $star (@{$stars}){
 	    my $star_object = Ska::AGASC::Star->new($star, $par->{datetime});
 	    $star_object->source_file($file);
-#	    use Data::Dumper;
-#	    print Dumper $star_object;
-	    # great_circle_distance from Math::Trig defaults to radians
-	    my $dist = great_circle_distance( $par->{ra}*$d2r, 
-				              $par->{dec}*$d2r, 
-				              $star_object->ra_pmcorrected()*$d2r, 
-				              $star_object->dec_pmcorrected()*$d2r)
-					      *$r2d;
+
+	    # sph_dist in radians
+	    my $dist = sph_dist( $par->{ra}*$d2r, 
+				 $par->{dec}*$d2r,
+				 $star_object->ra_pmcorrected()*$d2r,
+				 $star_object->dec_pmcorrected()*$d2r)
+		       *$r2d;
+
+		
+
 	    if ( $dist < $par->{radius} ){
 		$starhash{$star_object->agasc_id()} = $star_object; 
 	    }
 	}
     }
     return \%starhash;
+}
+
+##***************************************************************************
+sub sph_dist{
+##***************************************************************************
+# in radians
+    my ($a1, $d1, $a2, $d2)= @_;
+
+    return(0.0) if ($a1==$a2 && $d1==$d2);
+
+    return acos( cos($d1)*cos($d2) * cos(($a1-$a2)) +
+		 sin($d1)*sin($d2));
 }
 
 
