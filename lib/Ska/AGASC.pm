@@ -8,7 +8,8 @@ use Data::ParseTable qw( parse_table );
 use Math::Trig qw( great_circle_distance );
 use IO::All;
 use PDL;
-use Data::Dumper;
+#use Data::Dumper;
+
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
@@ -57,12 +58,11 @@ sub new{
 #    print Dumper $lim_ref;
 
     # load the regions file into an array of hash references
-    my $regions_mat = parse_boundary($par{boundary_file});
-
+    my $regions_pdl = parse_boundary($par{boundary_file});
 
     # find the numbers of all the regions that appear to contain a piece of the defined
     # search box
-    my @region_numbers = regionsInside( $lim_ref->{rlim}, $lim_ref->{dlim}, $regions_mat );
+    my @region_numbers = regionsInside( $lim_ref->{rlim}, $lim_ref->{dlim}, $regions_pdl );
 
 #    print Dumper @region_numbers;
 
@@ -120,39 +120,38 @@ sub parse_boundary{
 
     my @lines = io($boundary_file)->slurp;
 
-    my @regions;
+    my $pdl = pdl(map { parse_boundaryfile_line($_) } @lines);
 
-    for my $line (@lines){
 
-	chomp $line;
-	my @field = split( ' ', $line);
-        s/^ *| *$//g for @field;
-
-	my $ra_lo = $field[1];
-	my $ra_hi = $field[2];
-	my $dec_lo = $field[3];
-	my $dec_hi = $field[4];
-
-	if ( $ra_lo > $ra_hi ){
-	    $ra_lo -= 360;
-	}
-	
-	if ( $dec_hi < $dec_lo ){
-	    my $temp = $dec_lo;
-	    $dec_lo = $dec_hi;
-	    $dec_hi = $temp;
-	}
-
-	my %region = ( RA_LO => $ra_lo,
-		       RA_HI => $ra_hi,
-		       DEC_LO => $dec_lo,
-		       DEC_HI => $dec_hi,
-		       );
-	push @regions, \%region;
-    }
-    return \@regions;
+    return $pdl;
 }
-	    
+
+sub parse_boundaryfile_line{
+    
+    my $line = shift;
+
+    chomp $line;
+    my @field = split( ' ', $line);
+    s/^ *| *$//g for @field;
+
+    my $idx = $field[0];
+    my $ra_lo = $field[1];
+    my $ra_hi = $field[2];
+    my $dec_lo = $field[3];
+    my $dec_hi = $field[4];
+
+    if ( $ra_lo > $ra_hi ){
+	$ra_lo -= 360;
+    }
+
+    if ( $dec_hi < $dec_lo ){
+	my $temp = $dec_lo;
+	$dec_lo = $dec_hi;
+	$dec_hi = $temp;
+    }
+
+    return  [ $idx, $ra_lo, $ra_hi, $dec_lo, $dec_hi ];
+}
 	
 
 
@@ -190,9 +189,11 @@ sub grabFITS{
     my %starhash;
 
     for my $file (@{$fits_list}){
+
 	my $stars = parse_table( $file );
+	
 	for my $star (@{$stars}){
-	    my $star_object = PDL::AGASC::Star->new($star, $par->{datetime});
+	    my $star_object = Ska::AGASC::Star->new($star, $par->{datetime});
 	    $star_object->source_file($file);
 #	    use Data::Dumper;
 #	    print Dumper $star_object;
@@ -239,54 +240,37 @@ sub getFITSSource{
 
 sub regionsInside{
 
-    my ($rlim, $dlim, $regions) = @_;
+    my ($data_rlim, $data_dlim, $regions_pdl) = @_;
+
+# grab the columns of the piddle that interest me
+
+    my $cat_ra_lo = $regions_pdl->slice(1)->reshape(-1);
+    my $cat_ra_hi = $regions_pdl->slice(2)->reshape(-1);
+    my $cat_dec_lo = $regions_pdl->slice(3)->reshape(-1);
+    my $cat_dec_hi = $regions_pdl->slice(4)->reshape(-1);
+
+# find any catalog region that has a boundary contained within the search area
+# and any catalog region that completely contains the search area
+        
+    my $match = which( 
+			(
+			 ( ($cat_ra_hi >= $data_rlim->[0]) & ($cat_ra_hi <= $data_rlim->[1]) ) 
+			 | ( ($cat_ra_lo >= $data_rlim->[0]) & ($cat_ra_lo <= $data_rlim->[1]) ) 
+			 | ( ($cat_ra_lo <= $data_rlim->[0]) & ($cat_ra_hi >= $data_rlim->[1]) )
+			 )
+			&
+			(
+			 ( ($cat_dec_hi >= $data_dlim->[0]) & ($cat_dec_hi <= $data_dlim->[1]) )
+			 | (  ($cat_dec_lo >= $data_dlim->[0]) & ($cat_dec_lo <= $data_dlim->[1]) )
+			 | (  ($cat_dec_lo <= $data_dlim->[0]) & ($cat_dec_hi >= $data_dlim->[1]) )
+			 )
+			);
 
 
-    # Define the 4 corners of the box defined by the region
+    # index starts at 0
+    $match = $match+1;
 
-    my @corners  = ( 
-		     { 
-		       ra => $rlim->[0], 
-		       dec =>$dlim->[0],
-		       },
-		     {
-		      ra => $rlim->[0], 
-		      dec => $dlim->[1],
-		      },
-		     {
-		      ra => $rlim->[1],
-		      dec => $dlim->[0],
-		      },
-		     {
-		      ra => $rlim->[1],
-		      dec => $dlim->[1],
-		      },
-		     );
-
-    
-    
-    
-    my @regNumbers;
-
-    for my $index (0 .. $#{@{$regions}} ){
-
-	my $match = 0;
-
-	# check to see if any corner is in the region
-
-	for my $corner (@corners){
-	    if ( point_in_area( $corner, $regions->[$index] )){
-		$match = 1;
-		last;
-	    }
-	}
-
-
-	if ($match){
-	    push @regNumbers, $index + 1;
-	}
-    }
-    
+    my @regNumbers = list($match);
 
     return @regNumbers;
 }
@@ -353,8 +337,8 @@ sub radeclim{
 }
 
 
-
-package PDL::AGASC::Star;
+{
+package Ska::AGASC::Star;
 
 
 use strict;
@@ -418,15 +402,17 @@ my $agasc_start_date = '2000:001:00:00:00.000';
 my $seconds_per_day = 86400;
 my $days_per_year = 365.25;
 my $milliarcsecs_per_degree = 3600 * 1000;
-
 my $datetime;
-
+my $cat_years;
 
 
 sub new{
     my $class = shift;
     my $star = shift;
-    $datetime = shift;
+    
+    if (not defined $datetime){
+	$datetime = shift;
+    }
 
     my %star_info = %{$star}; 
     my $star_ref = \%star_info;
@@ -441,14 +427,16 @@ sub ra_pmcorrected{
     my $self = shift;
     return $self->{ra_pmcorrected} if (defined $self->{ra_pmcorrected});
 
-    my $years = (date2time($datetime) - date2time($agasc_start_date)) /
-	( $seconds_per_day * $days_per_year);
-    
+    if (not defined $cat_years){
+	$cat_years = (date2time($datetime) - date2time($agasc_start_date)) /
+	    ( $seconds_per_day * $days_per_year);
+    }
+
     # ignore those with proper motion of -9999
     my $pm_ra = ($self->pm_ra() == -9999) ? 0 : $self->pm_ra();
     
     # proper motion in milliarcsecs per year
-    my $ra_pmcorrected = $self->ra() + ( $pm_ra * ( $years / $milliarcsecs_per_degree ));
+    my $ra_pmcorrected = $self->ra() + ( $pm_ra * ( $cat_years / $milliarcsecs_per_degree ));
 				       
     $self->{ra_pmcorrected} = $ra_pmcorrected;
     return $self->{ra_pmcorrected};
@@ -460,21 +448,23 @@ sub dec_pmcorrected{
     my $self = shift;
     return $self->{dec_pmcorrected} if (defined $self->{dec_pmcorrected});
 
-    my $years = (date2time($datetime) - date2time($agasc_start_date)) /
-	( $seconds_per_day * $days_per_year);
-    
+    if (not defined $cat_years){
+	$cat_years = (date2time($datetime) - date2time($agasc_start_date)) /
+	    ( $seconds_per_day * $days_per_year);
+    }
+			           
     # ignore those with proper motion of -9999
     my $pm_dec = ($self->pm_dec() == -9999) ? 0 : $self->pm_dec();
     
     # proper motion in milliarcsecs per year
-    my $dec_pmcorrected = $self->dec() + ( $pm_dec * ( $years / $milliarcsecs_per_degree ));
+    my $dec_pmcorrected = $self->dec() + ( $pm_dec * ( $cat_years / $milliarcsecs_per_degree ));
 				       
     $self->{dec_pmcorrected} = $dec_pmcorrected;
     return $self->{dec_pmcorrected};
     
 }
 
-    
+}    
 
 
 1;
