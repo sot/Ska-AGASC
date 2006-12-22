@@ -8,13 +8,13 @@ use Data::ParseTable qw( parse_table );
 use Math::Trig qw( pi );
 use IO::All;
 use PDL;
-use Data::Dumper;
+#use Data::Dumper;
 
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.2';
+our $VERSION = '2.3';
 
 #my $ID_DIST_LIMIT = 1.5;
 
@@ -55,7 +55,7 @@ sub new{
     my $lim_ref = radeclim( $par{ra}, $par{dec}, $par{radius});
 
 
-    print Dumper $lim_ref;
+#    print Dumper $lim_ref;
 
     # load the regions file into an array of hash references
     my $regions_pdl = parse_boundary($par{boundary_file});
@@ -64,7 +64,7 @@ sub new{
     # search box
     my @region_numbers = regionsInside( $lim_ref->{rlim}, $lim_ref->{dlim}, $regions_pdl );
 
-    print Dumper @region_numbers;
+#    print Dumper @region_numbers;
 
     # add all the regions that border the matched regions to deal with small region problems
     my @regions_plus_neighbors = parse_neighbors($par{neighbor_txt}, \@region_numbers);
