@@ -8,7 +8,7 @@ use Data::ParseTable qw( parse_table );
 use Math::Trig qw( pi );
 use IO::All;
 use PDL;
-#use Data::Dumper;
+use Data::Dumper;
 
 
 my $revision_string = '$Revision$';
@@ -46,7 +46,6 @@ sub new{
         $par{$key} = $value;
     }
     
- 
     $par{boundary_file} = $par{agasc_dir} . '/tables/boundaryfile';
     $par{neighbor_txt} = $par{agasc_dir} . '/tables/neighbors';
 
@@ -55,7 +54,8 @@ sub new{
     # agasc and then step through them to remove those outside the radius)
     my $lim_ref = radeclim( $par{ra}, $par{dec}, $par{radius});
 
-#    print Dumper $lim_ref;
+
+    print Dumper $lim_ref;
 
     # load the regions file into an array of hash references
     my $regions_pdl = parse_boundary($par{boundary_file});
@@ -64,7 +64,7 @@ sub new{
     # search box
     my @region_numbers = regionsInside( $lim_ref->{rlim}, $lim_ref->{dlim}, $regions_pdl );
 
-#    print Dumper @region_numbers;
+    print Dumper @region_numbers;
 
     # add all the regions that border the matched regions to deal with small region problems
     my @regions_plus_neighbors = parse_neighbors($par{neighbor_txt}, \@region_numbers);
@@ -74,10 +74,11 @@ sub new{
     my @uniq_regions = sortnuniq( @regions_plus_neighbors );
 
     # generate a list of fits files to retrieve
-    my @fits_list = getFITSSource( $par{agasc_dir}, \@uniq_regions);
+    my @fits_list = getFITSSource( $par{agasc_dir} . "/agasc/" , \@uniq_regions);
     
     # read all of the fits files and keep the stars that are within the defined radius
     my $starhash = grabFITS( \%par, \@fits_list );
+
 
     my $self = $starhash;
 
