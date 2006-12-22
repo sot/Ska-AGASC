@@ -14,7 +14,7 @@ use Data::Dumper;
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.1';
+our $VERSION = '2.2';
 
 #my $ID_DIST_LIMIT = 1.5;
 
