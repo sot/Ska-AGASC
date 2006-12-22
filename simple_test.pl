@@ -16,6 +16,7 @@ GetOptions( \%par,
     exit( 1 );
 
 my $agasc_region = Ska::AGASC->new({ 
+    agasc_dir => '/data.fido/storage/standalone/agasc1p6/',
     ra => $par{ra}, 
     dec => $par{dec}, 
     radius => $par{radius}, 

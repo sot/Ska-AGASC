@@ -14,9 +14,9 @@ use PDL;
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.0';
+our $VERSION = '2.1';
 
-my $ID_DIST_LIMIT = 1.5;
+#my $ID_DIST_LIMIT = 1.5;
 
 #my $pi = 4*atan2(1,1);
 my $pi = pi;
@@ -46,10 +46,9 @@ sub new{
         $par{$key} = $value;
     }
     
-    my $agasc_dir = $par{agasc_dir} . 'agasc';
-
-    $par{boundary_file} = $par{agasc_dir} . 'tables/boundaryfile';
-    $par{neighbor_txt} = $par{agasc_dir} . 'tables/neighbors';
+ 
+    $par{boundary_file} = $par{agasc_dir} . '/tables/boundaryfile';
+    $par{neighbor_txt} = $par{agasc_dir} . '/tables/neighbors';
 
 
     # define the ra and dec limits of the search box (we yank a box of stars from the
@@ -75,7 +74,7 @@ sub new{
     my @uniq_regions = sortnuniq( @regions_plus_neighbors );
 
     # generate a list of fits files to retrieve
-    my @fits_list = getFITSSource( $agasc_dir, \@uniq_regions);
+    my @fits_list = getFITSSource( $par{agasc_dir}, \@uniq_regions);
     
     # read all of the fits files and keep the stars that are within the defined radius
     my $starhash = grabFITS( \%par, \@fits_list );
