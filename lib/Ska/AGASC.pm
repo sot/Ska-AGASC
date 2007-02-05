@@ -8,7 +8,7 @@ use Data::ParseTable qw( parse_table );
 use Math::Trig qw( pi );
 use IO::All;
 use PDL;
-#use Data::Dumper;
+use Carp;
 
 
 my $revision_string = '$Revision$';
@@ -45,10 +45,19 @@ sub new{
     while (my ($key,$value) = each %{$par_ref}) {
         $par{$key} = $value;
     }
-    
+
+
     $par{boundary_file} = $par{agasc_dir} . '/tables/boundaryfile';
     $par{neighbor_txt} = $par{agasc_dir} . '/tables/neighbors';
 
+    croak(__PACKAGE__ . " Specified AGASC directory, ", 
+	  $par{agasc_dir}, 
+	  ", does not exist or does not contain necessary files and directories.\n") 
+	unless ( ( -e $par{agasc_dir} ) 
+		 and ( -e ($par{agasc_dir} . "/agasc/"))
+		 and ( -e ($par{boundary_file}))
+		 and ( -e ($par{neighbor_txt})));
+    
 
     # define the ra and dec limits of the search box (we yank a box of stars from the
     # agasc and then step through them to remove those outside the radius)
@@ -192,19 +201,12 @@ sub grabFITS{
     for my $file (@{$fits_list}){
 
 	my $stars = parse_table( $file );
-	
+
 	for my $star (@{$stars}){
-	    my $star_object = Ska::AGASC::Star->new($star, $par->{datetime});
-	    $star_object->source_file($file);
+	    my $star_object = make_star_object({ star => $star, par => $par, file => $file});
 
 	    # sph_dist in radians
-	    my $dist = sph_dist( $par->{ra}*$d2r, 
-				 $par->{dec}*$d2r,
-				 $star_object->ra_pmcorrected()*$d2r,
-				 $star_object->dec_pmcorrected()*$d2r)
-		       *$r2d;
-
-		
+	    my $dist = star_to_point_distance( $par->{ra}, $par->{dec}, $star_object );		
 
 	    if ( $dist < $par->{radius} ){
 		$starhash{$star_object->agasc_id()} = $star_object; 
@@ -213,6 +215,37 @@ sub grabFITS{
     }
     return \%starhash;
 }
+
+sub star_to_point_distance{
+    my $ra = shift;
+    my $dec = shift;
+    my $star = shift;
+    my $dist = $r2d * sph_dist( $ra*$d2r,
+				$dec*$d2r,
+				$star->ra_pmcorrected()*$d2r,
+				$star->dec_pmcorrected()*$d2r,
+				);
+    # let's return a number instead of a PDL
+    return $dist->at(0);
+}
+		     
+
+
+sub make_star_object{
+
+    my $arg_in = shift;
+    my $star = $arg_in->{star};
+    my $par = $arg_in->{par};
+    my $file = $arg_in->{file};
+    
+    my $star_object = Ska::AGASC::Star->new($star, $par->{datetime});
+    $star_object->source_file($file);
+
+    return $star_object;
+}
+    
+
+
 
 ##***************************************************************************
 sub sph_dist{
