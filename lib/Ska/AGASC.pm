@@ -4,17 +4,18 @@ package Ska::AGASC;
 
 use strict;
 use warnings;
-use Data::ParseTable qw( parse_table );
+#use Data::ParseTable qw( parse_table );
 use Math::Trig qw( pi );
 use IO::All;
 use PDL;
+#use PDL::NiceSlice;
 use Carp;
-
+use Ska::Convert qw( date2time );
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.3';
+our $VERSION = '2.4';
 
 #my $ID_DIST_LIMIT = 1.5;
 
@@ -38,6 +39,7 @@ sub new{
 	       radius => 1.3,
 	       datetime => get_curr_time(),
 	       agasc_dir => '/data/agasc1p6/',
+	       do_not_pm_correct_retrieve => 0,
 	       );
     
 
@@ -46,6 +48,7 @@ sub new{
         $par{$key} = $value;
     }
 
+    
 
     $par{boundary_file} = $par{agasc_dir} . '/tables/boundaryfile';
     $par{neighbor_txt} = $par{agasc_dir} . '/tables/neighbors';
@@ -130,11 +133,28 @@ sub parse_boundary{
 
     my @lines = io($boundary_file)->slurp;
 
+
     my $pdl = pdl(map { parse_boundaryfile_line($_) } @lines);
 
 
+#    my $ra_fix = which( $cat_ra_lo > $cat_ra_hi );
+#    $cat_ra_lo->($ra_fix) .= ($cat_ra_lo->($ra_fix) - 360);
+#
+#    my $dec_fix = which( $cat_dec_hi < $cat_dec_lo);
+#    my $temp = $cat_dec_lo->($dec_fix)->copy;
+#    $cat_dec_lo->($dec_fix) .= $cat_dec_hi->($dec_fix);
+#    $cat_dec_hi->($dec_fix) .= $temp;
+#
+#    my %regions_pdl_hash;
+#    $regions_pdl_hash{ra_lo} = $cat_ra_lo;
+#    $regions_pdl_hash{ra_hi} = $cat_ra_hi;
+#    $regions_pdl_hash{dec_lo} = $cat_dec_lo;
+#    $regions_pdl_hash{dec_hi} = $cat_dec_hi;
+#    
+
     return $pdl;
 }
+
 
 sub parse_boundaryfile_line{
     
@@ -151,16 +171,19 @@ sub parse_boundaryfile_line{
     my $dec_hi = $field[4];
 
     if ( $ra_lo > $ra_hi ){
-	$ra_lo -= 360;
+        $ra_lo -= 360;
     }
 
     if ( $dec_hi < $dec_lo ){
-	my $temp = $dec_lo;
-	$dec_lo = $dec_hi;
-	$dec_hi = $temp;
+        my $temp = $dec_lo;
+        $dec_lo = $dec_hi;
+        $dec_hi = $temp;
     }
 
     return  [ $idx, $ra_lo, $ra_hi, $dec_lo, $dec_hi ];
+
+
+
 }
 	
 
@@ -193,42 +216,92 @@ sub parse_neighbors{
 
 sub grabFITS{
 
+    eval 'use Astro::FITS::CFITSIO::Simple qw/ rdfits /';
+    if ($@){
+	croak(__PACKAGE__ .": !$@");
+    }
+    
     my $par = shift;
     my $fits_list = shift;
+    
+    # grab one star from the first fits file to get the epoch for the agasc
+    my $example_file = $fits_list->[0];
+    my %example_hash = rdfits("$example_file\[ #row == 1 \]");
+    my $epoch = $example_hash{epoch}->at(0);
+    my $agasc_start_date = $epoch . ":001:00:00:00.000";
+    
+    my $seconds_per_day = 86400;
+    my $days_per_year = 365.25;
+    my $milliarcsecs_per_degree = 3600 * 1000;
+
+    my $datetime = $par->{datetime};
+    my $cat_years = (date2time($datetime) - date2time($agasc_start_date)) /
+	( $seconds_per_day * $days_per_year);
+    my $pm_multiplier =  $cat_years / $milliarcsecs_per_degree;
 
     my %starhash;
 
     for my $file (@{$fits_list}){
 
-	my $stars = parse_table( $file );
 
-	for my $star (@{$stars}){
-	    my $star_object = make_star_object({ star => $star, par => $par, file => $file});
+			
 
-	    # sph_dist in radians
-	    my $dist = star_to_point_distance( $par->{ra}, $par->{dec}, $star_object );		
 
-	    if ( $dist < $par->{radius} ){
-		$starhash{$star_object->agasc_id()} = $star_object; 
-	    }
+	my $pm_string =  "temp_pm_ra=(pm_ra == -9999) ? 0 : pm_ra;"
+	    . " temp_pm_dec=(pm_dec == -9999) ? 0 : pm_dec; "
+	    . " ra_pmcorrected= ra + (temp_pm_ra * $pm_multiplier); "
+	    . " dec_pmcorrected = dec + (temp_pm_dec * $pm_multiplier); ";
+
+	
+
+	my $dist_string;
+	if ( $par->{do_not_pm_correct_retrieve} ){
+	    $dist_string = "dist_from_field_center = $r2d*2*"
+		. "arcsin(sqrt( "
+		. " (sin(((ra*$d2r) - ($par->{ra}*$d2r))/2)**2)" 
+		. " + cos(($par->{ra}*$d2r))*cos((ra*$d2r))*((sin( (($par->{dec}*$d2r) - (dec*$d2r))/2))**2)"
+		. "))";
 	}
+	else{
+	    $dist_string = "dist_from_field_center = $r2d*2*"
+		. "arcsin(sqrt( "
+		. " (sin(((ra_pmcorrected*$d2r) - ($par->{ra}*$d2r))/2)**2)" 
+		. " + cos(($par->{ra}*$d2r))*cos((ra_pmcorrected*$d2r))*((sin( (($par->{dec}*$d2r) - (dec_pmcorrected*$d2r))/2))**2)"
+		. "))";
+	}
+
+
+	my $filter;
+	my $radial_filter = " dist_from_field_center <= $par->{radius} ";
+
+	if (defined $par->{mag_limit}){
+	    $filter  = "mag_aca <= " . $par->{mag_limit} . " &&  $radial_filter " ;
+	} 
+	else{
+	    $filter = $radial_filter;
+	}
+
+	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]", { rfilter => "$filter"});
+
+	my $count = nelem($fits_hash{agasc_id});
+	#print "$file has $count \n";
+
+	for my $i (0 .. $count-1){
+	    my %star;
+	    for my $hash_key (keys %fits_hash){
+		$star{$hash_key} = $fits_hash{$hash_key}->at($i);
+	    }
+	    my $star_object = make_star_object({ star => \%star, par => $par, file => $file });
+	    $starhash{$star_object->agasc_id()} = $star_object;
+	}
+	
     }
+
+
+
     return \%starhash;
 }
 
-sub star_to_point_distance{
-    my $ra = shift;
-    my $dec = shift;
-    my $star = shift;
-    my $dist = $r2d * sph_dist( $ra*$d2r,
-				$dec*$d2r,
-				$star->ra_pmcorrected()*$d2r,
-				$star->dec_pmcorrected()*$d2r,
-				);
-    # let's return a number instead of a PDL
-    return $dist->at(0);
-}
-		     
 
 
 sub make_star_object{
@@ -244,21 +317,6 @@ sub make_star_object{
     return $star_object;
 }
     
-
-
-
-##***************************************************************************
-sub sph_dist{
-##***************************************************************************
-# in radians
-    my ($a1, $d1, $a2, $d2)= @_;
-
-    return(0.0) if ($a1==$a2 && $d1==$d2);
-
-    return acos( cos($d1)*cos($d2) * cos(($a1-$a2)) +
-		 sin($d1)*sin($d2));
-}
-
 
 
 sub sortnuniq{
@@ -290,12 +348,13 @@ sub regionsInside{
 
     my ($data_rlim, $data_dlim, $regions_pdl) = @_;
 
-# grab the columns of the piddle that interest me
+# grab the columns of the piddle hash that interest me
 
     my $cat_ra_lo = $regions_pdl->slice(1)->reshape(-1);
     my $cat_ra_hi = $regions_pdl->slice(2)->reshape(-1);
     my $cat_dec_lo = $regions_pdl->slice(3)->reshape(-1);
     my $cat_dec_hi = $regions_pdl->slice(4)->reshape(-1);
+
 
 # find any catalog region that has a boundary contained within the search area
 # and any catalog region that completely contains the search area
@@ -324,28 +383,28 @@ sub regionsInside{
 }
 
 
-sub point_in_area{
-
-    my ( $point, $area ) = @_;
-
-#    print Dumper $point;
-#    print Dumper $area;
-
-    if ( 
-	 ( ($point->{ra} >= $area->{RA_LO}) && ($point->{ra} <= $area->{RA_HI} ) )
-	 &&
-	 ( ($point->{dec} >= $area->{DEC_LO}) && ($point->{dec} <= $area->{DEC_HI} ) )
-	 ){
-	return 1;
-    }
-    
-    return 0;
-
-}    
-    
+#sub point_in_area{
+#
+#    my ( $point, $area ) = @_;
+#
+##    print Dumper $point;
+##    print Dumper $area;
+#
+#    if ( 
+#	 ( ($point->{ra} >= $area->{RA_LO}) && ($point->{ra} <= $area->{RA_HI} ) )
+#	 &&
+#	 ( ($point->{dec} >= $area->{DEC_LO}) && ($point->{dec} <= $area->{DEC_HI} ) )
+#	 ){
+#	return 1;
+#    }
+#    
+#    return 0;
+#
+#}    
+#    
 
 sub radeclim{
-# ugly hack copied from matlab code
+# ugly hack copied almost directly from matlab code
 
     my ($ra, $dec, $radius) = @_;
     my %lim;
@@ -395,6 +454,9 @@ use Ska::Convert qw( date2time );
 use Class::MakeMethods::Standard::Hash (
 					scalar => [ qw(
 						       source_file
+						       dist_from_field_center
+						       ra_pmcorrected
+						       dec_pmcorrected
 						       acqq1
 						       acqq2
 						       acqq3
@@ -446,12 +508,8 @@ use Class::MakeMethods::Standard::Hash (
 						    ],
 					);
 
-my $agasc_start_date = '2000:001:00:00:00.000';
-my $seconds_per_day = 86400;
-my $days_per_year = 365.25;
-my $milliarcsecs_per_degree = 3600 * 1000;
+
 my $datetime;
-my $cat_years;
 
 
 sub new{
@@ -468,49 +526,7 @@ sub new{
     bless $star_ref, $class;
     return $star_ref;
 }
-
-
-sub ra_pmcorrected{
-
-    my $self = shift;
-    return $self->{ra_pmcorrected} if (defined $self->{ra_pmcorrected});
-
-    if (not defined $cat_years){
-	$cat_years = (date2time($datetime) - date2time($agasc_start_date)) /
-	    ( $seconds_per_day * $days_per_year);
-    }
-
-    # ignore those with proper motion of -9999
-    my $pm_ra = ($self->pm_ra() == -9999) ? 0 : $self->pm_ra();
     
-    # proper motion in milliarcsecs per year
-    my $ra_pmcorrected = $self->ra() + ( $pm_ra * ( $cat_years / $milliarcsecs_per_degree ));
-				       
-    $self->{ra_pmcorrected} = $ra_pmcorrected;
-    return $self->{ra_pmcorrected};
-    
-}
-
-sub dec_pmcorrected{
-
-    my $self = shift;
-    return $self->{dec_pmcorrected} if (defined $self->{dec_pmcorrected});
-
-    if (not defined $cat_years){
-	$cat_years = (date2time($datetime) - date2time($agasc_start_date)) /
-	    ( $seconds_per_day * $days_per_year);
-    }
-			           
-    # ignore those with proper motion of -9999
-    my $pm_dec = ($self->pm_dec() == -9999) ? 0 : $self->pm_dec();
-    
-    # proper motion in milliarcsecs per year
-    my $dec_pmcorrected = $self->dec() + ( $pm_dec * ( $cat_years / $milliarcsecs_per_degree ));
-				       
-    $self->{dec_pmcorrected} = $dec_pmcorrected;
-    return $self->{dec_pmcorrected};
-    
-}
 
 }    
 
