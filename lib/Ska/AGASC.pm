@@ -17,8 +17,6 @@ my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
 our $VERSION = '2.4';
 
-#my $ID_DIST_LIMIT = 1.5;
-
 #my $pi = 4*atan2(1,1);
 my $pi = pi;
 my $r2a = 180./$pi*3600;
@@ -39,7 +37,7 @@ sub new{
 	       radius => 1.3,
 	       datetime => get_curr_time(),
 	       agasc_dir => '/data/agasc1p6/',
-	       do_not_pm_correct_retrieve => 0,
+	       do_not_pm_correct_retrieve => 1,
 	       );
     
 
@@ -66,9 +64,6 @@ sub new{
     # agasc and then step through them to remove those outside the radius)
     my $lim_ref = radeclim( $par{ra}, $par{dec}, $par{radius});
 
-
-#    print Dumper $lim_ref;
-
     # load the regions file into an array of hash references
     my $regions_pdl = parse_boundary($par{boundary_file});
 
@@ -87,10 +82,9 @@ sub new{
 
     # generate a list of fits files to retrieve
     my @fits_list = getFITSSource( $par{agasc_dir} . "/agasc/" , \@uniq_regions);
-    
+
     # read all of the fits files and keep the stars that are within the defined radius
     my $starhash = grabFITS( \%par, \@fits_list );
-
 
     my $self = $starhash;
 
@@ -127,36 +121,34 @@ sub get_curr_time{
     return $date;
 }
 
+sub get_year{
+
+    my $datetime = shift;
+    my ($sec, $min, $hr, $doy, $yr) = reverse split ":", $datetime;
+    return $yr;
+}
+
+sub get_day{
+    my $datetime = shift;
+    my ($sec, $min, $hr, $doy, $yr) = reverse split ":", $datetime;
+    return $doy;
+}
+
 sub parse_boundary{
 
     my $boundary_file = shift;
 
     my @lines = io($boundary_file)->slurp;
 
-
     my $pdl = pdl(map { parse_boundaryfile_line($_) } @lines);
-
-
-#    my $ra_fix = which( $cat_ra_lo > $cat_ra_hi );
-#    $cat_ra_lo->($ra_fix) .= ($cat_ra_lo->($ra_fix) - 360);
-#
-#    my $dec_fix = which( $cat_dec_hi < $cat_dec_lo);
-#    my $temp = $cat_dec_lo->($dec_fix)->copy;
-#    $cat_dec_lo->($dec_fix) .= $cat_dec_hi->($dec_fix);
-#    $cat_dec_hi->($dec_fix) .= $temp;
-#
-#    my %regions_pdl_hash;
-#    $regions_pdl_hash{ra_lo} = $cat_ra_lo;
-#    $regions_pdl_hash{ra_hi} = $cat_ra_hi;
-#    $regions_pdl_hash{dec_lo} = $cat_dec_lo;
-#    $regions_pdl_hash{dec_hi} = $cat_dec_hi;
-#    
 
     return $pdl;
 }
 
 
 sub parse_boundaryfile_line{
+
+    # I tried to do this with pure PDL functions, and it took longer than doing it a line at a time
     
     my $line = shift;
 
@@ -181,7 +173,6 @@ sub parse_boundaryfile_line{
     }
 
     return  [ $idx, $ra_lo, $ra_hi, $dec_lo, $dec_hi ];
-
 
 
 }
@@ -224,33 +215,24 @@ sub grabFITS{
     my $par = shift;
     my $fits_list = shift;
     
-    # grab one star from the first fits file to get the epoch for the agasc
-    my $example_file = $fits_list->[0];
-    my %example_hash = rdfits("$example_file\[ #row == 1 \]");
-    my $epoch = $example_hash{epoch}->at(0);
-    my $agasc_start_date = $epoch . ":001:00:00:00.000";
-    
-    my $seconds_per_day = 86400;
     my $days_per_year = 365.25;
     my $milliarcsecs_per_degree = 3600 * 1000;
 
-    my $datetime = $par->{datetime};
-    my $cat_years = (date2time($datetime) - date2time($agasc_start_date)) /
-	( $seconds_per_day * $days_per_year);
-    my $pm_multiplier =  $cat_years / $milliarcsecs_per_degree;
+    my $dateyear = get_year($par->{datetime});
+    my $dateday = get_day($par->{datetime});
+    print "my datetime is $datetime, with year $dateyear and day $dateday  \n";
 
     my %starhash;
 
     for my $file (@{$fits_list}){
 
 
-			
-
-
-	my $pm_string =  "temp_pm_ra=(pm_ra == -9999) ? 0 : pm_ra;"
-	    . " temp_pm_dec=(pm_dec == -9999) ? 0 : pm_dec; "
-	    . " ra_pmcorrected= ra + (temp_pm_ra * $pm_multiplier); "
-	    . " dec_pmcorrected = dec + (temp_pm_dec * $pm_multiplier); ";
+	       
+	my $pm_string =  "temp_pm_ra=(pm_ra == -9999 || epoch == -9999 ) ? 0 : pm_ra;"
+	    . " temp_pm_dec=(pm_dec == -9999 || epoch == -9999 ) ? 0 : pm_dec; "
+	    . " pm_multiplier = ( ( ($dateyear - epoch) + ($dateday / $dayes_per_year) ) / $milliarcsecs_per_degree ); "
+	    . " ra_pmcorrected= ra + (temp_pm_ra * pm_multiplier );"
+	    . " dec_pmcorrected = dec + (temp_pm_dec * pm_multiplier );";
 
 	
 
@@ -284,7 +266,7 @@ sub grabFITS{
 	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]", { rfilter => "$filter"});
 
 	my $count = nelem($fits_hash{agasc_id});
-	#print "$file has $count \n";
+#	print "$file has $count \n";
 
 	for my $i (0 .. $count-1){
 	    my %star;
@@ -454,6 +436,7 @@ use Ska::Convert qw( date2time );
 use Class::MakeMethods::Standard::Hash (
 					scalar => [ qw(
 						       source_file
+						       pm_multiplier
 						       dist_from_field_center
 						       ra_pmcorrected
 						       dec_pmcorrected

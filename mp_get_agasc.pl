@@ -28,6 +28,9 @@ my $agasc_region = Ska::AGASC->new(\%par);
 my @star_list = $agasc_region->list_ids();
 for my $agasc_id (@star_list){
     my $star = $agasc_region->get_star($agasc_id);
+#    if ($agasc_id eq '372525592'){
+#	print Dumper $star;
+#    }
     my $ra = $star->ra_pmcorrected();
     my $dec = $star->dec_pmcorrected();
     my $pm_ra = $star->pm_ra();
@@ -35,7 +38,8 @@ for my $agasc_id (@star_list){
     my $mag = $star->mag_aca();
     my $dist = $star->dist_from_field_center();
 #    my $file = $star->source_file();
-    printf("id: %s \t ra:%3.2f \t dec:%3.2f \t pm_ra:%s \t pm_dec:%s \t dist:%3.7f \n", $agasc_id, $ra, $dec, $pm_ra, $pm_dec, $dist);
+   printf("id: %s \t ra:%3.2f \t dec:%3.2f \t pm_ra:%s \t pm_dec:%s \t dist:%3.7f \t epoch:%s \n", 
+	   $agasc_id, $ra, $dec, $pm_ra, $pm_dec, $dist, $star->epoch());
 }
 
 
