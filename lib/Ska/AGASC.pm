@@ -2,6 +2,9 @@ package Ska::AGASC;
 # Retrieve a hash of stars from the AGASC
 # from a defined cone
 
+# used by acq_stat_db/update_acq_stats.pl
+# to be used by starcheck
+
 use strict;
 use warnings;
 #use Data::ParseTable qw( parse_table );
@@ -220,22 +223,19 @@ sub grabFITS{
 
     my $dateyear = get_year($par->{datetime});
     my $dateday = get_day($par->{datetime});
-    print "my datetime is $datetime, with year $dateyear and day $dateday  \n";
+#    print "my datetime is $datetime, with year $dateyear and day $dateday  \n";
 
     my %starhash;
 
     for my $file (@{$fits_list}){
-
-
 	       
 	my $pm_string =  "temp_pm_ra=(pm_ra == -9999 || epoch == -9999 ) ? 0 : pm_ra;"
 	    . " temp_pm_dec=(pm_dec == -9999 || epoch == -9999 ) ? 0 : pm_dec; "
-	    . " pm_multiplier = ( ( ($dateyear - epoch) + ($dateday / $dayes_per_year) ) / $milliarcsecs_per_degree ); "
+	    . " pm_multiplier = ( ( ($dateyear - epoch) + ($dateday / $days_per_year) ) / $milliarcsecs_per_degree ); "
 	    . " ra_pmcorrected= ra + (temp_pm_ra * pm_multiplier );"
 	    . " dec_pmcorrected = dec + (temp_pm_dec * pm_multiplier );";
 
 	
-
 	my $dist_string;
 	if ( $par->{do_not_pm_correct_retrieve} ){
 	    $dist_string = "dist_from_field_center = $r2d*2*"
@@ -266,7 +266,6 @@ sub grabFITS{
 	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]", { rfilter => "$filter"});
 
 	my $count = nelem($fits_hash{agasc_id});
-#	print "$file has $count \n";
 
 	for my $i (0 .. $count-1){
 	    my %star;
@@ -365,25 +364,7 @@ sub regionsInside{
 }
 
 
-#sub point_in_area{
-#
-#    my ( $point, $area ) = @_;
-#
-##    print Dumper $point;
-##    print Dumper $area;
-#
-#    if ( 
-#	 ( ($point->{ra} >= $area->{RA_LO}) && ($point->{ra} <= $area->{RA_HI} ) )
-#	 &&
-#	 ( ($point->{dec} >= $area->{DEC_LO}) && ($point->{dec} <= $area->{DEC_HI} ) )
-#	 ){
-#	return 1;
-#    }
-#    
-#    return 0;
-#
-#}    
-#    
+
 
 sub radeclim{
 # ugly hack copied almost directly from matlab code
