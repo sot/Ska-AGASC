@@ -7,18 +7,16 @@ package Ska::AGASC;
 
 use strict;
 use warnings;
-#use Data::ParseTable qw( parse_table );
 use Math::Trig qw( pi );
 use IO::All;
 use PDL;
-#use PDL::NiceSlice;
 use Carp;
-use Ska::Convert qw( date2time );
+use Chandra::Time;
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.4';
+our $VERSION = '2.5';
 
 #my $pi = 4*atan2(1,1);
 my $pi = pi;
@@ -40,7 +38,7 @@ sub new{
 	       radius => 1.3,
 	       datetime => get_curr_time(),
 	       agasc_dir => '/data/agasc1p6/',
-	       do_not_pm_correct_retrieve => 1,
+	       do_not_pm_correct_retrieve => 0,
 	       );
     
 
@@ -48,9 +46,20 @@ sub new{
     while (my ($key,$value) = each %{$par_ref}) {
         $par{$key} = $value;
     }
-
     
-
+    # Check and convert, if necessary, input time
+    my $test_datetime;
+    eval{
+	my $t = Chandra::Time->new($par{datetime});
+	$test_datetime = $t->date();
+    };
+    if ($@){
+	croak(__PACKAGE__ . " datetime not in YYYY:DOY format or does not convert properly with Chandra::Time \n $@ \n");
+    }
+    $par{datetime} = $test_datetime;
+    
+        
+    # define boundary file and  and neighbor file relative to agasc_dir
     $par{boundary_file} = $par{agasc_dir} . '/tables/boundaryfile';
     $par{neighbor_txt} = $par{agasc_dir} . '/tables/neighbors';
 
@@ -74,9 +83,7 @@ sub new{
     # search box
     my @region_numbers = regionsInside( $lim_ref->{rlim}, $lim_ref->{dlim}, $regions_pdl );
 
-#    print Dumper @region_numbers;
-
-    # add all the regions that border the matched regions to deal with small region problems
+    # add all the regions that border the matched regions to our list to deal with small region problems
     my @regions_plus_neighbors = parse_neighbors($par{neighbor_txt}, \@region_numbers);
 
     # remove duplicates (I realize I could do this without defining 3 arrays, but these are small
@@ -116,7 +123,6 @@ sub get_star{
 }
 
 sub get_curr_time{
-
     # if the datetime is undefined for the search, use the time now
     my ($second, $minute, $hour, $dayOfMonth, $month, $yearOffset, $dayOfWeek, $dayOfYear, $daylightSavings) = gmtime(time);
     my $year = 1900 + $yearOffset;
@@ -125,7 +131,6 @@ sub get_curr_time{
 }
 
 sub get_year{
-
     my $datetime = shift;
     my ($sec, $min, $hr, $doy, $yr) = reverse split ":", $datetime;
     return $yr;
@@ -220,6 +225,7 @@ sub grabFITS{
     
     my $days_per_year = 365.25;
     my $milliarcsecs_per_degree = 3600 * 1000;
+
 
     my $dateyear = get_year($par->{datetime});
     my $dateday = get_day($par->{datetime});
@@ -413,7 +419,6 @@ package Ska::AGASC::Star;
 
 use strict;
 use warnings;
-use Ska::Convert qw( date2time );
 use Class::MakeMethods::Standard::Hash (
 					scalar => [ qw(
 						       source_file
@@ -507,13 +512,19 @@ Ska::AGASC - Perl extension to retrieve stars from the AGASC
 
 use Ska::AGASC;
 
-my $agasc_region = Ska::AGASC->new({ ra => 30, dec => 40, radius => .05, datetime => '2001:102:12:34:06.000' });
-my @star_list = $agasc_region->list_ids();
-for my $agasc_id (@star_list){
-    my $star = $agasc_region->get_star($agasc_id);
-    my $ra = $star->ra();
-    my $dec = $star->dec();
-    print "id:$agasc_id \tra:$ra \tdec:$dec \n";
+ my $agasc_region = Ska::AGASC->new({ 
+                                     ra => 30, 
+                                     dec => 40, 
+                                     radius => .05, 
+                                     datetime => '2001:102:12:34:06.000' 
+                                     });
+
+ my @star_list = $agasc_region->list_ids();
+ for my $agasc_id (@star_list){
+     my $star = $agasc_region->get_star($agasc_id);
+     my $ra = $star->ra();
+     my $dec = $star->dec();
+     print "id:$agasc_id \tra:$ra \tdec:$dec \n";
 }
 
 
@@ -531,6 +542,7 @@ None by default.
 
 =head1 Ska::AGASC METHODS
 
+
 =head2 new()
     
     Creates a new instance of the AGASC container object.
@@ -544,12 +556,27 @@ None by default.
                radius => 1.3,
                datetime => get_curr_time(),
                agasc_dir => '/data/agasc1p6/',
+               mag_limit => undef,
+               do_not_pm_correct_retrieve => 0,
                );
+
+
+   ra, dec, and radius are expected as degrees.
+
+   Here "get_curr_time()" is a non-exported local routine that gets the current gmtime 
+   time and returns it as YYYY:DOY time.  datetime will work with any format recognized
+   by Chandra::Time .
+
+   agasc_dir specifies the parent directory location of the agasc.
+
+   mag_limit specifies the faint limit and stars dimmer than the limit are not retrieve 
+   from the agasc.
 
    Note: The radius retrieve section calculates the proper motion corrected 
    values of ra and dec (which are stored in the star object as ra_pmcorrected 
    and dec_pmcorrected) and uses those coordinates to determine if the star is 
    actually within the defined retrieve radius.
+    
 
  
 =head2 list_ids()
@@ -566,6 +593,7 @@ None by default.
 
 =head1 Ska::AGASC::Star Methods
 
+
 =head2 ra_pmcorrected()
 
     Gets or sets the proper motion corrected value of the star object's RA.
@@ -573,6 +601,21 @@ None by default.
 =head2 dec_pmcorrected()
 
     Gets or sets the proper motion corrected value of the star object's DEC.
+
+=head2 source_file()
+
+    Gets or sets the name of the fits file in the AGASC that provided the data for the star
+
+=head2 dist_from_field_center()
+
+    Gets or sets the distance the star is from the center of the specified search radius.  
+    In degrees.
+
+=head2 pm_multiplier()
+
+    Gets or sets the proper motion multiplier .. years / milliarcsecs_per_degree to convert
+    pm_ra and pm_dec to degrees for the specified time
+        
 
 =head2 All other AGASC attributes have standard get/set methods
  Listed here in alphabetical order for convenience
@@ -632,7 +675,7 @@ Jean Connelly, E<lt>jeanconn@localdomainE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2006 Smithsonian Astrophysical Observatory
+Copyright (C) 2007 Smithsonian Astrophysical Observatory
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.6 or,
