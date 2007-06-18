@@ -16,7 +16,7 @@ use Chandra::Time;
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.5';
+our $VERSION = '2.6';
 
 #my $pi = 4*atan2(1,1);
 my $pi = pi;
