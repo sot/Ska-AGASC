@@ -22,9 +22,13 @@ our $VERSION = '2.5';
 my $pi = pi;
 my $r2a = 180./$pi*3600;
  
-my $d2r = $pi/180.;
-my $r2d = 1./$d2r;
+#print "$pi \n";
 
+my $d2r = $pi/180.;
+#print "$d2r \n";
+
+my $r2d = 1./$d2r;
+#print "$r2d \n";
 
 
 sub new{
@@ -82,6 +86,8 @@ sub new{
     # find the numbers of all the regions that appear to contain a piece of the defined
     # search box
     my @region_numbers = regionsInside( $lim_ref->{rlim}, $lim_ref->{dlim}, $regions_pdl );
+#    use Data::Dumper;
+#    print Dumper @region_numbers;
 
     # add all the regions that border the matched regions to our list to deal with small region problems
     my @regions_plus_neighbors = parse_neighbors($par{neighbor_txt}, \@region_numbers);
@@ -89,12 +95,15 @@ sub new{
     # remove duplicates (I realize I could do this without defining 3 arrays, but these are small
     # lists and it seems to be more readable )
     my @uniq_regions = sortnuniq( @regions_plus_neighbors );
+#    print Dumper @uniq_regions;
 
     # generate a list of fits files to retrieve
     my @fits_list = getFITSSource( $par{agasc_dir} . "/agasc/" , \@uniq_regions);
+#    print Dumper @fits_list;
 
     # read all of the fits files and keep the stars that are within the defined radius
     my $starhash = grabFITS( \%par, \@fits_list );
+#    print Dumper $starhash;
 
     my $self = $starhash;
 
@@ -244,32 +253,58 @@ sub grabFITS{
 	
 	my $dist_string;
 	if ( $par->{do_not_pm_correct_retrieve} ){
-	    $dist_string = "dist_from_field_center = $r2d*2*"
-		. "arcsin(sqrt( "
-		. " (sin(((ra*$d2r) - ($par->{ra}*$d2r))/2)**2)" 
-		. " + cos(($par->{ra}*$d2r))*cos((ra*$d2r))*((sin( (($par->{dec}*$d2r) - (dec*$d2r))/2))**2)"
-		. "))";
+	    $dist_string = "dist_from_field_center = $r2d * "
+		. " acos( cos( dec * $d2r) * cos( $par->{dec} * $d2r) * cos(( ra-$par->{ra} ) * $d2r) "
+		. " + sin( dec * $d2r ) * sin( $par->{dec} * $d2r )) ";
+#	    
+#	    $dist_string = "dist_from_field_center = $r2d*2*"
+#		. "arcsin(sqrt( "
+#		. " (sin(((ra*$d2r) - ($par->{ra}*$d2r))/2)**2)" 
+#		. " + cos(($par->{ra}*$d2r))*cos((ra*$d2r))*((sin( (($par->{dec}*$d2r) - (dec*$d2r))/2))**2)"
+#		. "))";
+#	    $dist_string = "dist_from_field_center = "
+#		. "arccos( (sin(ra*$d2r)*sin($par->{ra}*$d2r)))";
+#		. "(cos(ra*$d2r)*cos($par->{ra}*$d2r)*cos((dec*$d2r)-($par->{dec}*$d2r))"
+#		. "))";;
+
 	}
 	else{
-	    $dist_string = "dist_from_field_center = $r2d*2*"
-		. "arcsin(sqrt( "
-		. " (sin(((ra_pmcorrected*$d2r) - ($par->{ra}*$d2r))/2)**2)" 
-		. " + cos(($par->{ra}*$d2r))*cos((ra_pmcorrected*$d2r))*((sin( (($par->{dec}*$d2r) - (dec_pmcorrected*$d2r))/2))**2)"
-		. "))";
+
+	    $dist_string = "dist_from_field_center = $r2d * "
+		. " acos( cos( dec_pmcorrected * $d2r) * cos( $par->{dec} * $d2r) * cos(( ra_pmcorrected-$par->{ra} ) * $d2r) "
+		. " + sin( dec_pmcorrected * $d2r ) * sin( $par->{dec} * $d2r )) ";
+
+# Well, I though the haversine would be better, but it seems to be twice the distance I expect (maybe the
+# 2 is a typo
+
+#	    $dist_string = "dist_from_field_ center = $r2d*2*"
+#		. "arcsin(sqrt( "
+#		. " (sin(((ra_pmcorrected*$d2r) - ($par->{ra}*$d2r))/2)**2)" 
+#		. " + cos(($par->{ra}*$d2r))*cos((ra_pmcorrected*$d2r))*((sin( (($par->{dec}*$d2r) - (dec_pmcorrected*$d2r))/2))**2)"
+#		. "))";
+#	    $dist_string = "dist_from_field_center = $r2d * "
+#		. "arccos( (sin(ra*$d2r)*sin($par->{ra}*$d2r))"
+#		. "+ (cos(ra*$d2r)*cos($par->{ra}*$d2r)*cos((dec*$d2r)-($par->{dec}*$d2r))"
+#		. "))";;
+
+
 	}
 
 
 	my $filter;
-	my $radial_filter = " dist_from_field_center <= $par->{radius} ";
+#	my $radial_filter = " dist_from_field_center <= $par->{radius} ";
+	my $radial_filter = '';
 
 	if (defined $par->{mag_limit}){
-	    $filter  = "mag_aca <= " . $par->{mag_limit} . " &&  $radial_filter " ;
+#	    $filter  = "mag_aca <= " . $par->{mag_limit} . " &&  $radial_filter " ;
+	    $filter  = "mag_aca <= " . $par->{mag_limit} ;
 	} 
 	else{
 	    $filter = $radial_filter;
 	}
 
 	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]", { rfilter => "$filter"});
+#	my %fits_hash = rdfits("$file");
 
 	my $count = nelem($fits_hash{agasc_id});
 
