@@ -4,4 +4,4 @@ MANIFEST
 README
 t/Ska-AGASC.t
 lib/Ska/AGASC.pm
-META.yml                                 Module meta-data (added by MakeMaker)
+

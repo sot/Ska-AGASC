@@ -16,7 +16,7 @@ use Chandra::Time;
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.6';
+our $VERSION = '2.7';
 
 #my $pi = 4*atan2(1,1);
 my $pi = pi;
@@ -86,20 +86,22 @@ sub new{
     # find the numbers of all the regions that appear to contain a piece of the defined
     # search box
     my @region_numbers = regionsInside( $lim_ref->{rlim}, $lim_ref->{dlim}, $regions_pdl );
-#    use Data::Dumper;
-#    print Dumper @region_numbers;
+
 
     # add all the regions that border the matched regions to our list to deal with small region problems
     my @regions_plus_neighbors = parse_neighbors($par{neighbor_txt}, \@region_numbers);
 
+
     # remove duplicates (I realize I could do this without defining 3 arrays, but these are small
     # lists and it seems to be more readable )
     my @uniq_regions = sortnuniq( @regions_plus_neighbors );
-#    print Dumper @uniq_regions;
+
+    # fits file names start at 1 instead of 0
+    my @fits_number = map { $_ + 1 } @uniq_regions;
 
     # generate a list of fits files to retrieve
-    my @fits_list = getFITSSource( $par{agasc_dir} . "/agasc/" , \@uniq_regions);
-#    print Dumper @fits_list;
+    my @fits_list = getFITSSource( $par{agasc_dir} . "/agasc/" , \@fits_number);
+
 
     # read all of the fits files and keep the stars that are within the defined radius
     my $starhash = grabFITS( \%par, \@fits_list );
@@ -207,6 +209,8 @@ sub parse_neighbors{
     my @regions_plus_neighbors;
 
     for my $region (@{$regionnum_aref}){
+	# include the region first
+	push @regions_plus_neighbors, $region;
 	# find lines in the neighbor file that begin with the region specified
 	my @match = grep /^$region\s/, @lines;
 	for my $line (@match){
@@ -243,6 +247,8 @@ sub grabFITS{
     my %starhash;
 
     for my $file (@{$fits_list}){
+
+#	print "loading: $file \n";
 	       
 	my $pm_string =  "temp_pm_ra=(pm_ra == -9999 || epoch == -9999 ) ? 0 : pm_ra;"
 	    . " temp_pm_dec=(pm_dec == -9999 || epoch == -9999 ) ? 0 : pm_dec; "
@@ -253,6 +259,7 @@ sub grabFITS{
 	
 	my $dist_string;
 	if ( $par->{do_not_pm_correct_retrieve} ){
+
 	    $dist_string = "dist_from_field_center = $r2d * "
 		. " acos( cos( dec * $d2r) * cos( $par->{dec} * $d2r) * cos(( ra-$par->{ra} ) * $d2r) "
 		. " + sin( dec * $d2r ) * sin( $par->{dec} * $d2r )) ";
@@ -304,7 +311,7 @@ sub grabFITS{
 	}
 
 	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]", { rfilter => "$filter"});
-#	my %fits_hash = rdfits("$file");
+#	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]");
 
 	my $count = nelem($fits_hash{agasc_id});
 
@@ -396,8 +403,6 @@ sub regionsInside{
 			);
 
 
-    # index starts at 0
-    $match = $match+1;
 
     my @regNumbers = list($match);
 
