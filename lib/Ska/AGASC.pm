@@ -16,7 +16,7 @@ use Chandra::Time;
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.7';
+our $VERSION = '2.8';
 
 #my $pi = 4*atan2(1,1);
 my $pi = pi;
@@ -365,7 +365,7 @@ sub getFITSSource{
 
     for my $num (@{$nfile_ref}){
 	my $searchnum = sprintf( "%04d", $num);
-	my @filelist = glob("$agasc_dir/*/$searchnum.fit");
+	my @filelist = glob("$agasc_dir/*/$searchnum.[Ff][Ii][Tt]");
 	
 	push @fits, @filelist;
     }
