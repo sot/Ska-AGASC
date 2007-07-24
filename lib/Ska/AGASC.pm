@@ -12,11 +12,14 @@ use IO::All;
 use PDL;
 use Carp;
 use Chandra::Time;
+use Ska::Convert qw( date2time );
+use File::SearchPath qw( searchpath );
+use GrabEnv qw( grabenv );
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '2.8';
+our $VERSION = '3.0';
 
 #my $pi = 4*atan2(1,1);
 my $pi = pi;
@@ -29,6 +32,11 @@ my $d2r = $pi/180.;
 
 my $r2d = 1./$d2r;
 #print "$r2d \n";
+
+# agasc_start_date for calculating proper motion when using mp_get_agasc
+# perl retrieval uses fits file "epoch" and does not require this
+my $agasc_start_date = '2000:001:00:00:00.000';
+
 
 
 sub new{
@@ -43,6 +51,7 @@ sub new{
 	       datetime => get_curr_time(),
 	       agasc_dir => '/data/agasc1p6/',
 	       do_not_pm_correct_retrieve => 0,
+	       prefer_mp_get_agasc => 0,
 	       );
     
 
@@ -50,18 +59,162 @@ sub new{
     while (my ($key,$value) = each %{$par_ref}) {
         $par{$key} = $value;
     }
-    
+            
+
     # Check and convert, if necessary, input time
     my $test_datetime;
     eval{
 	my $t = Chandra::Time->new($par{datetime});
-	$test_datetime = $t->date();
+	$par{time_object} = $t;
+	$par{datetime} = $t->date();
     };
     if ($@){
 	croak(__PACKAGE__ . " datetime not in YYYY:DOY format or does not convert properly with Chandra::Time \n $@ \n");
     }
-    $par{datetime} = $test_datetime;
     
+
+    my $starhash;
+    # Use mp_get_agasc if available and preferred
+    if ($par{prefer_mp_get_agasc}){
+
+	$starhash = try_mp_get_agasc( \%par);
+	
+    }
+    
+    # else use plain perl method
+    else{
+	
+	$starhash = perl_ska_agasc( \%par );
+
+    }
+
+    my $self = $starhash;
+
+    bless $self, $class;
+
+    return $self;
+    
+}
+
+
+sub try_mp_get_agasc{
+    my $par_ref = shift;
+    my %par = %{$par_ref};
+
+    my $starhash;
+    # if not defined try to define it
+
+    my $mp_get_agasc = searchpath( 'mp_get_agasc' );
+
+    if ( not defined $mp_get_agasc ) {
+
+
+	local %ENV = grabenv("tcsh", "source /home/ascds/.ascrc -r release");
+
+	use Data::Dumper;  
+#	print Dumper %ENV;
+
+	$mp_get_agasc = searchpath( 'mp_get_agasc' );
+	$par{mp_get_agasc} = $mp_get_agasc;
+
+	if (not defined $mp_get_agasc ) {
+	    
+	    $starhash = perl_ska_agasc( \%par );
+	    return $starhash;
+	}
+
+	$starhash = mp_agasc( \%par );
+
+    }	    
+    else{
+	    $starhash = mp_agasc( \%par );
+	}
+
+    
+    return $starhash;
+
+
+}
+
+
+
+sub mp_agasc{
+
+    print "using mp_get_agasc \n";
+
+    my $par_ref = shift;
+    my %par = %{$par_ref};
+
+    my %starhash;
+    
+    my $mp_get_agasc = "$par{mp_get_agasc} -r $par{ra} -d $par{dec} -w $par{radius} 2>&1";
+    my @stars = `$mp_get_agasc`;
+    if ($?){
+	my $starhashref = perl_ska_agasc( \%par);
+	return $starhashref;
+    }
+
+    # let get dtime to correct agasc star positions for proper motion
+    my $seconds_per_day = 86400;
+    my $days_per_year = 365.25;
+    my $years = (date2time($par{datetime}) - date2time($agasc_start_date)) / ( $seconds_per_day * $days_per_year);
+    my $milliarcsecs_per_degree = 3600 * 1000;
+    
+    foreach (@stars) {
+	s/-/ -/g;
+	my @flds = split;
+	
+        # AGASC 1.4 and 1.5 are related (one-to-one) with different versions of mp_get_agasc
+        # which have different output formats.  Choose the right one based on AGASC version:
+
+        # I'm not sure where the proper motion bits are set in agasc 1.4, so we'll just set
+        # them to 0 - Jean
+
+        my ($id, $ra, $dec, $poserr, $pm_ra, $pm_dec, $mag, $magerr, $bv, $class, $aspq)
+            = ($par{agasc_dir} =~ /1p4/) ?
+            ( @flds[0..3], "0", "0", @flds[7..10], "0") : @flds[0..3,6,7,12,13,19,14,30];
+	
+
+        # ignore those with proper motion of -9999
+	$pm_ra = ($pm_ra == -9999) ? 0 : $pm_ra;
+	$pm_dec = ($pm_dec == -9999) ? 0 : $pm_dec;
+
+
+        # proper motion in milliarcsecs per year
+	my $ra_pmcorrected = $ra + ( $pm_ra * ( $years / $milliarcsecs_per_degree ));
+	my $dec_pmcorrected = $dec + ( $pm_dec * ( $years / $milliarcsecs_per_degree ));
+
+	my %star = ( agasc_id => $id,
+		     ra => $ra,
+		     dec => $dec,
+		     ra_pmcorrected => $ra_pmcorrected,
+		     dec_pmcorrected => $dec_pmcorrected,
+		     poserr => $poserr,
+		     pm_ra => $pm_ra,
+		     pm_dec => $pm_dec,
+		     mag_aca => $mag,
+		     mag_aca_err => $magerr,
+		     color1 => $bv,
+		     class => $class,
+		     aspq1 => $aspq,
+		     );
+
+	
+	$starhash{ $id } = make_star_object({ star => \%star, par => \%par });
+    }
+
+    return \%starhash;
+
+}
+
+
+
+sub perl_ska_agasc{ 
+
+    print "using perl cfitsio \n";
+
+    my $par_ref = shift;
+    my %par = %{$par_ref};
         
     # define boundary file and  and neighbor file relative to agasc_dir
     $par{boundary_file} = $par{agasc_dir} . '/tables/boundaryfile';
@@ -107,11 +260,10 @@ sub new{
     my $starhash = grabFITS( \%par, \@fits_list );
 #    print Dumper $starhash;
 
-    my $self = $starhash;
+    return $starhash;
 
-    bless $self, $class;
-    return $self;
 }
+
 
 
 sub list_ids{
@@ -338,10 +490,13 @@ sub make_star_object{
     my $arg_in = shift;
     my $star = $arg_in->{star};
     my $par = $arg_in->{par};
-    my $file = $arg_in->{file};
-    
+
     my $star_object = Ska::AGASC::Star->new($star, $par->{datetime});
-    $star_object->source_file($file);
+    
+    if (defined $arg_in->{file}){
+	my $file = $arg_in->{file};
+	$star_object->source_file($file);
+    }
 
     return $star_object;
 }
