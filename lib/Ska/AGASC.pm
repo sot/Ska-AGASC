@@ -13,7 +13,6 @@ use PDL;
 use Carp;
 use Chandra::Time;
 use Ska::Convert qw( date2time );
-use File::SearchPath qw( searchpath );
 use GrabEnv qw( grabenv );
 
 my $revision_string = '$Revision$';
@@ -104,32 +103,30 @@ sub try_mp_get_agasc{
     my $starhash;
     # if not defined try to define it
 
-    my $mp_get_agasc = searchpath( 'mp_get_agasc' );
+    my $mp_get_agasc = `which mp_get_agasc 2>&1`;
 
-    if ( not defined $mp_get_agasc ) {
-
+    if ( $? ) {
 
 	local %ENV = grabenv("tcsh", "source /home/ascds/.ascrc -r release");
 
-	use Data::Dumper;  
+#	use Data::Dumper;  
 #	print Dumper %ENV;
 
-	$mp_get_agasc = searchpath( 'mp_get_agasc' );
-	$par{mp_get_agasc} = $mp_get_agasc;
+	$mp_get_agasc = `which mp_get_agasc 2>&1`;
 
-	if (not defined $mp_get_agasc ) {
+
+	if ( $? ) {
 	    
 	    $starhash = perl_ska_agasc( \%par );
 	    return $starhash;
 	}
-
+	$par{mp_get_agasc} = $mp_get_agasc;
 	$starhash = mp_agasc( \%par );
-
+	
     }	    
     else{
-	    $starhash = mp_agasc( \%par );
-	}
-
+	$starhash = mp_agasc( \%par );
+    }
     
     return $starhash;
 
