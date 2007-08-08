@@ -18,19 +18,17 @@ use GrabEnv qw( grabenv );
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '3.0';
+our $VERSION = '3.1';
 
 #my $pi = 4*atan2(1,1);
 my $pi = pi;
 my $r2a = 180./$pi*3600;
  
-#print "$pi \n";
 
 my $d2r = $pi/180.;
-#print "$d2r \n";
 
 my $r2d = 1./$d2r;
-#print "$r2d \n";
+
 
 # agasc_start_date for calculating proper motion when using mp_get_agasc
 # perl retrieval uses fits file "epoch" and does not require this
@@ -39,10 +37,10 @@ my $agasc_start_date = '2000:001:00:00:00.000';
 
 
 sub new{
-
+    
     my $class = shift;
     my $par_ref = shift;
-
+    
     my %par = (
 	       ra => 0,
 	       dec => 0,
@@ -51,37 +49,41 @@ sub new{
 	       agasc_dir => '/data/agasc1p6/',
 	       do_not_pm_correct_retrieve => 0,
 	       prefer_mp_get_agasc => 0,
+	       ascds_launcher => '/proj/sot/ska/data/agasc/ascrc',
 	       );
-    
+     
+ 
+     # Override Defaults as needed from passed parameter hash
+     while (my ($key,$value) = each %{$par_ref}) {
+         $par{$key} = $value;
+     }
 
-    # Override Defaults as needed from passed parameter hash
-    while (my ($key,$value) = each %{$par_ref}) {
-        $par{$key} = $value;
-    }
-            
-
-    # Check and convert, if necessary, input time
-    my $test_datetime;
-    eval{
-	my $t = Chandra::Time->new($par{datetime});
-	$par{time_object} = $t;
-	$par{datetime} = $t->date();
-    };
-    if ($@){
-	croak(__PACKAGE__ . " datetime not in YYYY:DOY format or does not convert properly with Chandra::Time \n $@ \n");
-    }
-    
+ 
+     # Check and convert, if necessary, input time
+     my $test_datetime;
+     eval{
+ 	my $t = Chandra::Time->new($par{datetime});
+ 	$par{time_object} = $t;
+ 	$par{datetime} = $t->date();
+     };
+     if ($@){
+ 	croak(__PACKAGE__ . " datetime not in YYYY:DOY format or does not convert properly with Chandra::Time \n $@ \n");
+     }
 
     my $starhash;
     # Use mp_get_agasc if available and preferred
-    if ($par{prefer_mp_get_agasc}){
+    if ($par{prefer_mp_get_agasc} and (-e $par{ascds_launcher})){
 
+	# set environment for agasc_dir for mp_get_agasc
+	# causes no harm, so is a global change
+	$ENV{ASCDS_AGASC} = $par{agasc_dir};
 	$starhash = try_mp_get_agasc( \%par);
 	
     }
     
     # else use plain perl method
     else{
+
 	
 	$starhash = perl_ska_agasc( \%par );
 
@@ -91,6 +93,7 @@ sub new{
 
     bless $self, $class;
 
+
     return $self;
     
 }
@@ -99,34 +102,28 @@ sub new{
 sub try_mp_get_agasc{
     my $par_ref = shift;
     my %par = %{$par_ref};
-
+    
     my $starhash;
-    # if not defined try to define it
 
-    my $mp_get_agasc = `which mp_get_agasc 2>&1`;
+    my $PATH = $ENV{PATH};
 
-    if ( $? ) {
-
-	local %ENV = grabenv("tcsh", "source /home/ascds/.ascrc -r release");
-
-#	use Data::Dumper;  
-#	print Dumper %ENV;
-
-	$mp_get_agasc = `which mp_get_agasc 2>&1`;
-
-
-	if ( $? ) {
-	    
-	    $starhash = perl_ska_agasc( \%par );
-	    return $starhash;
-	}
-	$par{mp_get_agasc} = $mp_get_agasc;
+    # eval this to ignore any errors from the grabenv or the which
+    eval{
+	my %ASCDS_ENV = grabenv("tcsh", "source $par{ascds_launcher} -r release");
+	$ENV{PATH} = $ASCDS_ENV{PATH};
+	$par{mp_get_agasc} = `which mp_get_agasc 2>&1`;
+#	print "$? \n" if ($?);
+	$ENV{PATH} = $PATH;
+    };	
+    
+    # eval this to catch errors from mp_get_agasc and use the pure perl method if needed
+    eval{
 	$starhash = mp_agasc( \%par );
-	
-    }	    
-    else{
-	$starhash = mp_agasc( \%par );
+    };
+    if ($@){
+	$starhash = perl_ska_agasc( \%par );
     }
+
     
     return $starhash;
 
@@ -137,19 +134,42 @@ sub try_mp_get_agasc{
 
 sub mp_agasc{
 
-    print "using mp_get_agasc \n";
+#    print "using mp_get_agasc \n";
 
     my $par_ref = shift;
     my %par = %{$par_ref};
-
+    
     my %starhash;
     
-    my $mp_get_agasc = "$par{mp_get_agasc} -r $par{ra} -d $par{dec} -w $par{radius} 2>&1";
-    my @stars = `$mp_get_agasc`;
-    if ($?){
-	my $starhashref = perl_ska_agasc( \%par);
-	return $starhashref;
+    chomp($par{mp_get_agasc});
+
+    # I can't find a way to localize %ENV, so I'll just get the right 
+    my %ASCDS_ENV = grabenv("tcsh", "source $par{ascds_launcher} -r release");
+
+    my $PATH = $ENV{PATH};
+    my $LD_LIBRARY_PATH = $ENV{LD_LIBRARY_PATH};
+    
+    $ENV{PATH} = $ASCDS_ENV{PATH};
+    $ENV{LD_LIBRARY_PATH} = $ASCDS_ENV{LD_LIBRARY_PATH};
+
+    my $mp_get_agasc = "$par{mp_get_agasc} -r $par{ra} -d $par{dec} -w $par{radius}";
+#    print "string is $mp_get_agasc \n";
+#    print "PATH is $ENV{PATH} \n";
+#    print "LD is $ENV{LD_LIBRARY_PATH} \n";
+
+    my @stars = `$mp_get_agasc 2>&1`;
+
+    if (defined $PATH){
+	$ENV{PATH} = $PATH;
     }
+    if (defined $LD_LIBRARY_PATH){
+	$ENV{LD_LIBRARY_PATH} = $LD_LIBRARY_PATH;
+    }
+
+    if ($?){
+	croak "Incompatible or missing mp_get_agasc \n";
+    }
+
 
     # let get dtime to correct agasc star positions for proper motion
     my $seconds_per_day = 86400;
@@ -171,6 +191,11 @@ sub mp_agasc{
             = ($par{agasc_dir} =~ /1p4/) ?
             ( @flds[0..3], "0", "0", @flds[7..10], "0") : @flds[0..3,6,7,12,13,19,14,30];
 	
+	# basic check to see if I got stars with numeric ids
+	unless ($id =~ /^\d*$/){
+	    croak("Did not receive stars from mp_get_agasc\n");
+	}
+
 
         # ignore those with proper motion of -9999
 	$pm_ra = ($pm_ra == -9999) ? 0 : $pm_ra;
@@ -181,12 +206,14 @@ sub mp_agasc{
 	my $ra_pmcorrected = $ra + ( $pm_ra * ( $years / $milliarcsecs_per_degree ));
 	my $dec_pmcorrected = $dec + ( $pm_dec * ( $years / $milliarcsecs_per_degree ));
 
+	
+
 	my %star = ( agasc_id => $id,
 		     ra => $ra,
 		     dec => $dec,
 		     ra_pmcorrected => $ra_pmcorrected,
 		     dec_pmcorrected => $dec_pmcorrected,
-		     poserr => $poserr,
+		     pos_err => $poserr,
 		     pm_ra => $pm_ra,
 		     pm_dec => $pm_dec,
 		     mag_aca => $mag,
@@ -208,10 +235,11 @@ sub mp_agasc{
 
 sub perl_ska_agasc{ 
 
-    print "using perl cfitsio \n";
+#    print "using perl cfitsio \n";
 
     my $par_ref = shift;
     my %par = %{$par_ref};
+
         
     # define boundary file and  and neighbor file relative to agasc_dir
     $par{boundary_file} = $par{agasc_dir} . '/tables/boundaryfile';
@@ -282,6 +310,7 @@ sub get_star{
     return $star;
 }
 
+
 sub get_curr_time{
     # if the datetime is undefined for the search, use the time now
     my ($second, $minute, $hour, $dayOfMonth, $month, $yearOffset, $dayOfWeek, $dayOfYear, $daylightSavings) = gmtime(time);
@@ -289,6 +318,7 @@ sub get_curr_time{
     my $date = sprintf("%4d:%03d:%02d:%02d:%02d.000", $year, $dayOfYear, $hour, $minute, $second);
     return $date;
 }
+
 
 sub get_year{
     my $datetime = shift;
@@ -377,6 +407,7 @@ sub parse_neighbors{
 
 sub grabFITS{
 
+ 
     eval 'use Astro::FITS::CFITSIO::Simple qw/ rdfits /';
     if ($@){
 	croak(__PACKAGE__ .": !$@");
@@ -405,8 +436,7 @@ sub grabFITS{
 	    . " ra_pmcorrected= ra + (temp_pm_ra * pm_multiplier );"
 	    . " dec_pmcorrected = dec + (temp_pm_dec * pm_multiplier );";
 
-	
-	my $dist_string;
+       	my $dist_string;
 	if ( $par->{do_not_pm_correct_retrieve} ){
 
 	    $dist_string = "dist_from_field_center = $r2d * "
@@ -448,12 +478,12 @@ sub grabFITS{
 
 
 	my $filter;
-#	my $radial_filter = " dist_from_field_center <= $par->{radius} ";
-	my $radial_filter = '';
+	my $radial_filter = " dist_from_field_center <= $par->{radius} ";
+#	my $radial_filter = '';
 
 	if (defined $par->{mag_limit}){
-#	    $filter  = "mag_aca <= " . $par->{mag_limit} . " &&  $radial_filter " ;
-	    $filter  = "mag_aca <= " . $par->{mag_limit} ;
+	    $filter  = "mag_aca <= " . $par->{mag_limit} . " &&  $radial_filter " ;
+#	    $filter  = "mag_aca <= " . $par->{mag_limit} ;
 	} 
 	else{
 	    $filter = $radial_filter;
@@ -463,6 +493,7 @@ sub grabFITS{
 #	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]");
 
 	my $count = nelem($fits_hash{agasc_id});
+#	print "count is $count \n";
 
 	for my $i (0 .. $count-1){
 	    my %star;
@@ -497,7 +528,7 @@ sub make_star_object{
 
     return $star_object;
 }
-    
+   
 
 
 sub sortnuniq{
@@ -603,9 +634,9 @@ sub radeclim{
     return \%lim;
 
 }
-
-
-{
+1;
+#
+#{
 package Ska::AGASC::Star;
 
 
@@ -689,7 +720,7 @@ sub new{
 }
     
 
-}    
+
 
 
 1;
@@ -750,7 +781,8 @@ None by default.
                agasc_dir => '/data/agasc1p6/',
                mag_limit => undef,
                do_not_pm_correct_retrieve => 0,
-               );
+               prefer_mp_get_agasc => 0,  
+              );
 
 
    ra, dec, and radius are expected as degrees.
@@ -769,7 +801,9 @@ None by default.
    and dec_pmcorrected) and uses those coordinates to determine if the star is 
    actually within the defined retrieve radius.
     
-
+   prefer_mp_get_agasc specifies a preference to use the Solaris-only compiled mp_get_agasc to 
+   perform the actual retrieve.  This is faster but not platform-independent.  If it fails, the
+   package falls through to using the standard perl cfitsio method.
  
 =head2 list_ids()
 
