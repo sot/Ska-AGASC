@@ -748,16 +748,15 @@ use Ska::AGASC;
      my $ra = $star->ra();
      my $dec = $star->dec();
      print "id:$agasc_id \tra:$ra \tdec:$dec \n";
-}
+ }
 
 
 =head1 DESCRIPTION
 
-   Ska::AGASC retrieves the stars in a region of the agasc and returns a 
-   reference to a object that is a hash of those stars.
+Ska::AGASC retrieves the stars in a region of the agasc and returns a
+reference to an object that is a hash of those stars.
 
-   It uses AGASC 1.6 by default.  
-   
+It uses AGASC 1.6 by default.  
 
 =head1 EXPORT
 
@@ -765,86 +764,110 @@ None by default.
 
 =head1 Ska::AGASC METHODS
 
+Methods for Ska::AGASC object
 
-=head2 new()
-    
-    Creates a new instance of the AGASC container object.
-    Accepts as its argument an anonymous hash or hashref of attributes which 
-    override the defaults.
+=over 4
+
+=item * new()
+
+Creates a new instance of the AGASC container object. Accepts as its
+argument an anonymous hash or hashref of creation attributes which override the
+defaults.
 
     Default Parameters
     my %par = (
                ra => 0,
                dec => 0,
                radius => 1.3,
-               datetime => get_curr_time(),
+               datetime => (current time),
                agasc_dir => '/data/agasc1p6/',
                mag_limit => undef,
                do_not_pm_correct_retrieve => 0,
                prefer_mp_get_agasc => 0,  
+               ascds_launcher => '/proj/sot/ska/data/agasc/ascrc'
               );
 
 
-   ra, dec, and radius are expected as degrees.
+ra, dec, and radius are expected as degrees.
 
-   Here "get_curr_time()" is a non-exported local routine that gets the current gmtime 
-   time and returns it as YYYY:DOY time.  datetime will work with any format recognized
-   by Chandra::Time .
+By default, datetime is set to the current time.  The datetime
+parameter may be set to a date in any format recognized by
+Chandra::Time .
 
-   agasc_dir specifies the parent directory location of the agasc.
+agasc_dir specifies the parent directory location of the agasc (i.e. a
+directory that contains the directories 'agasc' and 'tables').
 
-   mag_limit specifies the faint limit and stars dimmer than the limit are not retrieve 
-   from the agasc.
+mag_limit specifies the faint limit.  Stars dimmer than the limit
+are not retrieve from the agasc.
 
-   Note: The radius retrieve section calculates the proper motion corrected 
-   values of ra and dec (which are stored in the star object as ra_pmcorrected 
-   and dec_pmcorrected) and uses those coordinates to determine if the star is 
-   actually within the defined retrieve radius.
-    
-   prefer_mp_get_agasc specifies a preference to use the Solaris-only compiled mp_get_agasc to 
-   perform the actual retrieve.  This is faster but not platform-independent.  If it fails, the
-   package falls through to using the standard perl cfitsio method.
- 
-=head2 list_ids()
+Note: The radius retrieve section calculates the proper motion
+corrected values of ra and dec (which are stored in the star object as
+ra_pmcorrected and dec_pmcorrected) and uses those coordinates to
+determine if the star is actually within the defined retrieve radius.
 
-    Returns an array of the agasc_ids of the star objects within the AGASC region.
+do_not_pm_correct_retrieve is a boolean option.  If set to a value of
+1, stars are discarded if their uncorrxected positions are outside the
+requested radius.  The default is to correct for proper motion first.
 
-=head2 has_id($agasc_id)
+prefer_mp_get_agasc specifies a preference to use the Solaris-only
+compiled mp_get_agasc to perform the actual retrieve.  This is faster
+but not platform-independent.  If it fails, the package falls through
+to using the standard perl cfitsio method.  
 
-    Returns true value if the Ska::AGASC object contains a star with the specified $agasc_id.
+Note: At the time of this release, use of the cfitsio method is
+incompatible with the cfitsio library that is part of the ASCDS release.
+Thus, if the environment variable LD_LIBRARY_PATH has been set to
+include DS libs, Ska::AGASC will likely segfault.  Unset
+LD_LIBRARY_PATH if necessary.
 
-=head2 get_star($agasc_id)
-    
-    Returns the Ska::AGASC::Star object with the specified $agasc_id
+ascds_launcher specifies the location of a ASCDS environment-setting
+".ascrc" file for use with the Solaris-only mp_get_agasc option.  This
+option is only used if prefer_mp_get_agasc is set to 1.
+
+=item * list_ids()
+
+Returns an array of the agasc_ids of the star objects within the AGASC region.
+
+=item * has_id($agasc_id)
+
+Returns true value if the Ska::AGASC object contains a star with the specified $agasc_id.
+
+=item * get_star($agasc_id)
+
+Returns the Ska::AGASC::Star object with the specified $agasc_id
+
+=back
 
 =head1 Ska::AGASC::Star Methods
 
+Methods for the individual Star objects contained in the Ska::AGASC object
 
-=head2 ra_pmcorrected()
+=over 4
 
-    Gets or sets the proper motion corrected value of the star object's RA.
+=item * ra_pmcorrected()
 
-=head2 dec_pmcorrected()
+Gets or sets the proper motion corrected value of the star object's RA.
 
-    Gets or sets the proper motion corrected value of the star object's DEC.
+=item * dec_pmcorrected()
 
-=head2 source_file()
+Gets or sets the proper motion corrected value of the star object's DEC.
 
-    Gets or sets the name of the fits file in the AGASC that provided the data for the star
+=item * source_file()
 
-=head2 dist_from_field_center()
+Gets or sets the name of the fits file in the AGASC that provided the data for the star
 
-    Gets or sets the distance the star is from the center of the specified search radius.  
-    In degrees.
+=item * dist_from_field_center()
 
-=head2 pm_multiplier()
+Gets or sets the distance the star is from the center of the specified search radius.  
+In degrees.
 
-    Gets or sets the proper motion multiplier .. years / milliarcsecs_per_degree to convert
-    pm_ra and pm_dec to degrees for the specified time
-        
+=item * pm_multiplier()
 
-=head2 All other AGASC attributes have standard get/set methods
- Listed here in alphabetical order for convenience
+Gets or sets the proper motion multiplier .. years / milliarcsecs_per_degree to convert
+pm_ra and pm_dec to degrees for the specified time
+
+=item * All other AGASC attributes have standard get/set methods
+Listed here in alphabetical order for convenience
 
  acqq1
  acqq2
@@ -894,6 +917,7 @@ None by default.
  xref_id4
  xref_id5
 
+=back
 
 =head1 AUTHOR
 
@@ -909,6 +933,3 @@ at your option, any later version of Perl 5 you may have available.
 
 
 =cut
-    
-
-
