@@ -7,27 +7,37 @@ package Ska::AGASC;
 
 use strict;
 use warnings;
-use Math::Trig qw( pi );
+#use Math::Trig qw( pi );
 use IO::All;
 use PDL;
 use Carp;
 use Chandra::Time;
 use Ska::Convert qw( date2time );
-use GrabEnv qw( grabenv );
+#use GrabEnv qw( grabenv );
+use Shell::GetEnv;
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '3.1';
+our $VERSION = '3.2';
+
+
+my $ASCDS_ENV;
+my $MP_GET_AGASC_EXE;
+
+
 
 #my $pi = 4*atan2(1,1);
-my $pi = pi;
+#my $pi = pi;
+my $pi = 3.14159265;
 my $r2a = 180./$pi*3600;
  
 
 my $d2r = $pi/180.;
 
 my $r2d = 1./$d2r;
+
+
 
 
 # agasc_start_date for calculating proper motion when using mp_get_agasc
@@ -50,14 +60,10 @@ sub new{
 	       do_not_pm_correct_retrieve => 0,
 	       prefer_mp_get_agasc => 0,
 	       ascds_launcher => '/proj/sot/ska/data/agasc/ascrc',
+	       faint_mag_limit => 20,
+	       %{$par_ref},
 	       );
      
- 
-     # Override Defaults as needed from passed parameter hash
-     while (my ($key,$value) = each %{$par_ref}) {
-         $par{$key} = $value;
-     }
-
  
      # Check and convert, if necessary, input time
      my $test_datetime;
@@ -84,12 +90,13 @@ sub new{
     # else use plain perl method
     else{
 
-	
 	$starhash = perl_ska_agasc( \%par );
 
     }
 
+
     my $self = $starhash;
+    
 
     bless $self, $class;
 
@@ -108,13 +115,14 @@ sub try_mp_get_agasc{
     my $PATH = $ENV{PATH};
 
     # eval this to ignore any errors from the grabenv or the which
-    eval{
-	my %ASCDS_ENV = grabenv("tcsh", "source $par{ascds_launcher} -r release");
-	$ENV{PATH} = $ASCDS_ENV{PATH};
-	$par{mp_get_agasc} = `which mp_get_agasc 2>&1`;
-#	print "$? \n" if ($?);
-	$ENV{PATH} = $PATH;
-    };	
+    if (not $ASCDS_ENV){
+	eval{
+	    $ASCDS_ENV = Shell::GetEnv->new("tcsh", "source $par{ascds_launcher} -r release")->envs;
+	    $ENV{PATH} = $ASCDS_ENV->{PATH};
+	    chomp($MP_GET_AGASC_EXE = `which mp_get_agasc 2>&1`);
+	    $ENV{PATH} = $PATH;
+	};	
+    }
     
     # eval this to catch errors from mp_get_agasc and use the pure perl method if needed
     eval{
@@ -134,30 +142,27 @@ sub try_mp_get_agasc{
 
 sub mp_agasc{
 
-#    print "using mp_get_agasc \n";
+#    print "Trying $MP_GET_AGASC_EXE \n";
 
     my $par_ref = shift;
     my %par = %{$par_ref};
     
     my %starhash;
     
-    chomp($par{mp_get_agasc});
-
-    # I can't find a way to localize %ENV, so I'll just get the right 
-    my %ASCDS_ENV = grabenv("tcsh", "source $par{ascds_launcher} -r release");
 
     my $PATH = $ENV{PATH};
     my $LD_LIBRARY_PATH = $ENV{LD_LIBRARY_PATH};
     
-    $ENV{PATH} = $ASCDS_ENV{PATH};
-    $ENV{LD_LIBRARY_PATH} = $ASCDS_ENV{LD_LIBRARY_PATH};
-
-    my $mp_get_agasc = "$par{mp_get_agasc} -r $par{ra} -d $par{dec} -w $par{radius}";
-#    print "string is $mp_get_agasc \n";
-#    print "PATH is $ENV{PATH} \n";
-#    print "LD is $ENV{LD_LIBRARY_PATH} \n";
+    $ENV{PATH} = $ASCDS_ENV->{PATH};
+    $ENV{LD_LIBRARY_PATH} = $ASCDS_ENV->{LD_LIBRARY_PATH};
+    
+    my $mp_get_agasc = "$MP_GET_AGASC_EXE -r $par{ra} -d $par{dec} -w $par{radius}";
 
     my @stars = `$mp_get_agasc 2>&1`;
+
+    if ($?){
+	croak "Incompatible or missing mp_get_agasc \n";
+    }
 
     if (defined $PATH){
 	$ENV{PATH} = $PATH;
@@ -166,9 +171,6 @@ sub mp_agasc{
 	$ENV{LD_LIBRARY_PATH} = $LD_LIBRARY_PATH;
     }
 
-    if ($?){
-	croak "Incompatible or missing mp_get_agasc \n";
-    }
 
 
     # let get dtime to correct agasc star positions for proper motion
@@ -195,6 +197,9 @@ sub mp_agasc{
 	unless ($id =~ /^\d*$/){
 	    croak("Did not receive stars from mp_get_agasc\n");
 	}
+
+	
+	next if $mag > $par{faint_mag_limit};
 
 
         # ignore those with proper motion of -9999
@@ -235,7 +240,7 @@ sub mp_agasc{
 
 sub perl_ska_agasc{ 
 
-#    print "using perl cfitsio \n";
+#    print "Using perl cfitsio \n";
 
     my $par_ref = shift;
     my %par = %{$par_ref};
@@ -481,13 +486,14 @@ sub grabFITS{
 	my $radial_filter = " dist_from_field_center <= $par->{radius} ";
 #	my $radial_filter = '';
 
-	if (defined $par->{mag_limit}){
-	    $filter  = "mag_aca <= " . $par->{mag_limit} . " &&  $radial_filter " ;
+	if (defined $par->{faint_mag_limit}){
+	    $filter  = "mag_aca < " . $par->{faint_mag_limit} . " &&  $radial_filter " ;
 #	    $filter  = "mag_aca <= " . $par->{mag_limit} ;
 	} 
 	else{
 	    $filter = $radial_filter;
 	}
+
 
 	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]", { rfilter => "$filter"});
 #	my %fits_hash = rdfits("$file\[col $pm_string $dist_string;*\]");
@@ -707,13 +713,10 @@ my $datetime;
 sub new{
     my $class = shift;
     my $star = shift;
-    
-    if (not defined $datetime){
-	$datetime = shift;
-    }
 
-    my %star_info = %{$star}; 
-    my $star_ref = \%star_info;
+    $datetime = shift unless defined $datetime;
+    
+    my $star_ref = \%{$star};
 
     bless $star_ref, $class;
     return $star_ref;
