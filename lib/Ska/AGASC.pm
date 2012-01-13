@@ -3,7 +3,7 @@ package Ska::AGASC;
 # from a defined cone
 
 # used by acq_stat_db/update_acq_stats.pl
-# to be used by starcheck
+# used by starcheck
 
 use strict;
 use warnings;
@@ -13,19 +13,19 @@ use PDL;
 use Carp;
 use Chandra::Time;
 use Ska::Convert qw( date2time );
-#use GrabEnv qw( grabenv );
 use Shell::GetEnv;
+use App::Env;
+use Data::Dumper;
 
 my $revision_string = '$Revision$';
 my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
-our $VERSION = '3.2';
+use autouse 'Astro::FITS::CFITSIO::Simple' => qw( rdfits );
 
+our $VERSION = '3.3';
 
-my $ASCDS_ENV;
-my $MP_GET_AGASC_EXE;
-
-
+our $SMALL_ASCDS_ENV;
+our $access_method;
 
 #my $pi = 4*atan2(1,1);
 #my $pi = pi;
@@ -34,10 +34,7 @@ my $r2a = 180./$pi*3600;
  
 
 my $d2r = $pi/180.;
-
 my $r2d = 1./$d2r;
-
-
 
 
 # agasc_start_date for calculating proper motion when using mp_get_agasc
@@ -47,6 +44,7 @@ my $agasc_start_date = '2000:001:00:00:00.000';
 
 
 sub new{
+
     
     my $class = shift;
     my $par_ref = shift;
@@ -58,15 +56,13 @@ sub new{
 	       datetime => get_curr_time(),
 	       agasc_dir => '/data/agasc1p6/',
 	       do_not_pm_correct_retrieve => 0,
-	       prefer_mp_get_agasc => 0,
-	       ascds_launcher => '/proj/sot/ska/data/agasc/ascrc',
 	       faint_mag_limit => 20,
 	       %{$par_ref},
 	       );
-     
- 
-     # Check and convert, if necessary, input time
-     my $test_datetime;
+
+    
+    # Check and convert, if necessary, input time
+    my $test_datetime;
      eval{
  	my $t = Chandra::Time->new($par{datetime});
  	$par{time_object} = $t;
@@ -76,102 +72,69 @@ sub new{
  	croak(__PACKAGE__ . " datetime not in YYYY:DOY format or does not convert properly with Chandra::Time \n $@ \n");
      }
 
-    my $starhash;
-    # Use mp_get_agasc if available and preferred
-    if ($par{prefer_mp_get_agasc} and (-e $par{ascds_launcher})){
-
-	# set environment for agasc_dir for mp_get_agasc
-	# causes no harm, so is a global change
-	$ENV{ASCDS_AGASC} = $par{agasc_dir};
-	$starhash = try_mp_get_agasc( \%par);
-	
+ 
+    if (not defined $access_method){
+      set_ascds_env();
     }
-    
-    # else use plain perl method
-    else{
-
-	$starhash = perl_ska_agasc( \%par );
-
-    }
-
-
-    my $self = $starhash;
-    
-
+    my $self = get_stars( \%par);
     bless $self, $class;
-
 
     return $self;
     
 }
 
+sub set_ascds_env{
+  
+    # eval this to catch errors loading ASCDS
+    eval{
+	 local %ENV = ('HOME' => $ENV{'HOME'});
+	 $SMALL_ASCDS_ENV = App::Env->new('ASCDS', {SysFatal => 1});
+	 my @ascds_keys = keys %{$SMALL_ASCDS_ENV};
+	 for my $ascds_key (@ascds_keys){
+	     unless (grep {$_ eq $ascds_key} qw/HOME PATH LD_LIBRARY_PATH MANPATH/){
+		 # one argument works as a delete
+		 $SMALL_ASCDS_ENV->setenv( $ascds_key );
+	     }
+	 }
+    };
+    if ($@){
+	print STDERR __PACKAGE__ . " $@";
+	$SMALL_ASCDS_ENV = undef;
+    }
 
-sub try_mp_get_agasc{
+}
+
+sub get_stars{
+
     my $par_ref = shift;
     my %par = %{$par_ref};
     
     my $starhash;
 
-    my $PATH = $ENV{PATH};
-
-    # eval this to ignore any errors from the grabenv or the which
-    if (not $ASCDS_ENV){
-	eval{
-	    $ASCDS_ENV = Shell::GetEnv->new("tcsh", "source $par{ascds_launcher} -r release")->envs;
-	    $ENV{PATH} = $ASCDS_ENV->{PATH};
-	    chomp($MP_GET_AGASC_EXE = `which mp_get_agasc 2>&1`);
-	    $ENV{PATH} = $PATH;
-	};	
-    }
-    
-    # eval this to catch errors from mp_get_agasc and use the pure perl method if needed
-    eval{
+    if (defined $SMALL_ASCDS_ENV){
+	$access_method = 'mp_get_agasc';
 	$starhash = mp_agasc( \%par );
-    };
-    if ($@){
+    }
+    else{
+	$access_method = 'cfitsio';
 	$starhash = perl_ska_agasc( \%par );
     }
-
-    
     return $starhash;
-
-
 }
 
 
 
 sub mp_agasc{
 
-#    print "Trying $MP_GET_AGASC_EXE \n";
-
     my $par_ref = shift;
     my %par = %{$par_ref};
+
+    $SMALL_ASCDS_ENV->setenv('ASCDS_AGASC', $par{agasc_dir});
     
     my %starhash;
-    
-
-    my $PATH = $ENV{PATH};
-    my $LD_LIBRARY_PATH = $ENV{LD_LIBRARY_PATH};
-    
-    $ENV{PATH} = $ASCDS_ENV->{PATH};
-    $ENV{LD_LIBRARY_PATH} = $ASCDS_ENV->{LD_LIBRARY_PATH};
-    
-    my $mp_get_agasc = "$MP_GET_AGASC_EXE -r $par{ra} -d $par{dec} -w $par{radius}";
-
-    my @stars = `$mp_get_agasc 2>&1`;
-
-    if ($?){
-	croak "Incompatible or missing mp_get_agasc \n";
-    }
-
-    if (defined $PATH){
-	$ENV{PATH} = $PATH;
-    }
-    if (defined $LD_LIBRARY_PATH){
-	$ENV{LD_LIBRARY_PATH} = $LD_LIBRARY_PATH;
-    }
-
-
+    my @star_cmd = ('mp_get_agasc', '-r', $par{ra}, '-d', $par{dec}, '-w', $par{radius});
+    croak(__PACKAGE__ . " ASCDS environment not defined from launcher \n") unless defined $SMALL_ASCDS_ENV;
+    my @stars = $SMALL_ASCDS_ENV->qexec(@star_cmd);
 
     # let get dtime to correct agasc star positions for proper motion
     my $seconds_per_day = 86400;
@@ -195,7 +158,7 @@ sub mp_agasc{
 	
 	# basic check to see if I got stars with numeric ids
 	unless ($id =~ /^\d*$/){
-	    croak("Did not receive stars from mp_get_agasc\n");
+	    croak(__PACKAGE__ . " Did not receive stars from mp_get_agasc\n");
 	}
 
 	
@@ -232,20 +195,17 @@ sub mp_agasc{
 	$starhash{ $id } = make_star_object({ star => \%star, par => \%par });
     }
 
-    return \%starhash;
 
+    return \%starhash;
 }
 
 
 
 sub perl_ska_agasc{ 
 
-#    print "Using perl cfitsio \n";
-
     my $par_ref = shift;
     my %par = %{$par_ref};
 
-        
     # define boundary file and  and neighbor file relative to agasc_dir
     $par{boundary_file} = $par{agasc_dir} . '/tables/boundaryfile';
     $par{neighbor_txt} = $par{agasc_dir} . '/tables/neighbors';
@@ -289,6 +249,7 @@ sub perl_ska_agasc{
     # read all of the fits files and keep the stars that are within the defined radius
     my $starhash = grabFITS( \%par, \@fits_list );
 #    print Dumper $starhash;
+
 
     return $starhash;
 
@@ -413,10 +374,6 @@ sub parse_neighbors{
 sub grabFITS{
 
  
-    eval 'use Astro::FITS::CFITSIO::Simple qw/ rdfits /';
-    if ($@){
-	croak(__PACKAGE__ .": !$@");
-    }
     
     my $par = shift;
     my $fits_list = shift;
@@ -488,7 +445,6 @@ sub grabFITS{
 
 	if (defined $par->{faint_mag_limit}){
 	    $filter  = "mag_aca < " . $par->{faint_mag_limit} . " &&  $radial_filter " ;
-#	    $filter  = "mag_aca <= " . $par->{mag_limit} ;
 	} 
 	else{
 	    $filter = $radial_filter;
@@ -728,7 +684,7 @@ sub new{
 
 1;
 __END__
-# Below is stub documentation for your module. You'd better edit it!
+# Below is stub documentation for your module. You had better edit it!
 
 =head1 NAME
 
@@ -784,10 +740,8 @@ defaults.
                radius => 1.3,
                datetime => (current time),
                agasc_dir => '/data/agasc1p6/',
-               mag_limit => undef,
+               faint_mag_limit => 20,
                do_not_pm_correct_retrieve => 0,
-               prefer_mp_get_agasc => 0,  
-               ascds_launcher => '/proj/sot/ska/data/agasc/ascrc'
               );
 
 
@@ -812,10 +766,6 @@ do_not_pm_correct_retrieve is a boolean option.  If set to a value of
 1, stars are discarded if their uncorrxected positions are outside the
 requested radius.  The default is to correct for proper motion first.
 
-prefer_mp_get_agasc specifies a preference to use the Solaris-only
-compiled mp_get_agasc to perform the actual retrieve.  This is faster
-but not platform-independent.  If it fails, the package falls through
-to using the standard perl cfitsio method.  
 
 Note: At the time of this release, use of the cfitsio method is
 incompatible with the cfitsio library that is part of the ASCDS release.
@@ -823,9 +773,6 @@ Thus, if the environment variable LD_LIBRARY_PATH has been set to
 include DS libs, Ska::AGASC will likely segfault.  Unset
 LD_LIBRARY_PATH if necessary.
 
-ascds_launcher specifies the location of a ASCDS environment-setting
-".ascrc" file for use with the Solaris-only mp_get_agasc option.  This
-option is only used if prefer_mp_get_agasc is set to 1.
 
 =item * list_ids()
 
