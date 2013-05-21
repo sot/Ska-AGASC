@@ -22,7 +22,7 @@ my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
 use autouse 'Astro::FITS::CFITSIO::Simple' => qw( rdfits );
 
-our $VERSION = '3.3';
+our $VERSION = '3.4';
 
 our $SMALL_ASCDS_ENV;
 our $access_method;
@@ -87,7 +87,8 @@ sub set_ascds_env{
   
     # eval this to catch errors loading ASCDS
     eval{
-	 local %ENV = ('HOME' => $ENV{'HOME'});
+        local %ENV = ('HOME' => $ENV{HOME},
+                      'APP_ENV_ASCDS_STR' => $ENV{APP_ENV_ASCDS_STR});
 	 $SMALL_ASCDS_ENV = App::Env->new('ASCDS', {SysFatal => 1});
 	 my @ascds_keys = keys %{$SMALL_ASCDS_ENV};
 	 for my $ascds_key (@ascds_keys){
