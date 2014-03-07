@@ -54,7 +54,7 @@ sub new{
 	       dec => 0,
 	       radius => 1.3,
 	       datetime => get_curr_time(),
-	       agasc_dir => '/data/agasc1p6/',
+	       agasc_dir => '/proj/sot/ska/data/agasc1p6',
 	       do_not_pm_correct_retrieve => 0,
 	       faint_mag_limit => 20,
 	       %{$par_ref},
