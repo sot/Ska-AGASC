@@ -22,7 +22,7 @@ my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
 use autouse 'Astro::FITS::CFITSIO::Simple' => qw( rdfits );
 
-our $VERSION = '3.4';
+our $VERSION = '3.4.1';
 
 our $SMALL_ASCDS_ENV;
 our $access_method;
