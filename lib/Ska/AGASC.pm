@@ -22,7 +22,7 @@ my ($revision) = ($revision_string =~ /Revision:\s(\S+)/);
 
 use autouse 'Astro::FITS::CFITSIO::Simple' => qw( rdfits );
 
-our $VERSION = '3.4.1';
+our $VERSION = '3.5.0';
 
 our $SMALL_ASCDS_ENV;
 our $access_method;
@@ -172,10 +172,11 @@ sub mp_agasc{
 
 
         # proper motion in milliarcsecs per year
-	my $ra_pmcorrected = $ra + ( $pm_ra * ( $years / $milliarcsecs_per_degree ));
-	my $dec_pmcorrected = $dec + ( $pm_dec * ( $years / $milliarcsecs_per_degree ));
+        my $pm_to_degrees = $years / $milliarcsecs_per_degree;
+	my $dec_pmcorrected = $dec + $pm_dec * $pm_to_degrees;
+        my $ra_scale = cos($dec * $d2r);
+	my $ra_pmcorrected = $ra + $pm_ra * $pm_to_degrees / $ra_scale;
 
-	
 
 	my %star = ( agasc_id => $id,
 		     ra => $ra,
