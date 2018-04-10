@@ -26,7 +26,6 @@ BEGIN { use_ok('Ska::AGASC') };
 my $star_ra_pmcorr = 77.9706341148;
 my $star_dec_pmcorr = -45.0505974534;
 $cone = Ska::AGASC->new({
-      agasc_dir => '/data/agasc1p6',
       ra => $star_ra_pmcorr,
       dec => $star_dec_pmcorr,
       radius => 1.5,
