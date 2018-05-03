@@ -397,7 +397,7 @@ sub grabFITS{
 	my $pm_string =  "temp_pm_ra=(pm_ra == -9999 || epoch == -9999 ) ? 0 : pm_ra;"
 	    . " temp_pm_dec=(pm_dec == -9999 || epoch == -9999 ) ? 0 : pm_dec; "
 	    . " pm_multiplier = ( ( ($dateyear - epoch) + ($dateday / $days_per_year) ) / $milliarcsecs_per_degree ); "
-	    . " ra_pmcorrected= ra + (temp_pm_ra * pm_multiplier );"
+	    . " ra_pmcorrected= ra + (temp_pm_ra * pm_multiplier / cos( $par->{dec} * $d2r));"
 	    . " dec_pmcorrected = dec + (temp_pm_dec * pm_multiplier );";
 
        	my $dist_string;
